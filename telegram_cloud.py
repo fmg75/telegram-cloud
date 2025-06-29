@@ -59,7 +59,7 @@ def get_default_data_directory():
         # Definir ruta según SO
         if os.name == 'nt':  # Windows
             base_dir = user_home / "Documents" / "TelegramCloudStorage"
-        else:  # Linux/macOS
+        else:  # Linux/macOS - usar siempre el directorio oculto en home
             base_dir = user_home / ".telegram_cloud_storage"
 
         logger.info(f"Usando directorio de datos: {base_dir}")
