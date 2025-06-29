@@ -23,7 +23,7 @@ Un sistema simple y gratuito de almacenamiento en la nube que utiliza Telegram c
 
 1. **Clona el repositorio**:
    ```bash
-   git clone https://github.com/tu-usuario/telegram-cloud-storage.git
+   git clone https://github.com/tu-usuario/telegram-cloud.git
    cd telegram-cloud-storage
    ```
 
