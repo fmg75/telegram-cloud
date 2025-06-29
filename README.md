@@ -1,29 +1,32 @@
 # ☁️ Telegram Cloud Storage
 
-Un sistema simple y gratuito de almacenamiento en la nube que utiliza Telegram como backend de almacenamiento con una interfaz web intuitiva construida con Streamlit.
+Un sistema de almacenamiento en la nube que utiliza Telegram como backend con sincronización automática de metadatos. Cada usuario tiene su propio espacio de almacenamiento aislado con interfaz web intuitiva construida con Streamlit.
 
 ## 🌟 Características
 
 - **💾 Almacenamiento gratuito**: Utiliza Telegram como backend de almacenamiento (hasta 2GB por archivo)
+- **🔄 Sincronización automática**: Los metadatos se sincronizan automáticamente entre dispositivos
+- **👥 Multiusuario**: Cada token de bot crea un espacio de almacenamiento único y aislado
+- **📌 Índice remoto**: El índice de archivos se almacena como mensaje fijado en Telegram
 - **🌐 Interfaz web**: Aplicación web intuitiva construida con Streamlit
 - **📱 Multiplataforma**: Funciona en cualquier dispositivo con navegador web
 - **🔐 Seguro**: Tus archivos se almacenan en los servidores seguros de Telegram
 - **📊 Gestión completa**: Subir, descargar, eliminar y organizar archivos
 - **🔍 Búsqueda y filtrado**: Encuentra tus archivos rápidamente
 - **📈 Estadísticas**: Visualiza el uso de tu almacenamiento
-- **🏠 Configuración flexible**: Elige dónde guardar los datos localmente
+- **📂 Subida de carpetas**: Comprime y sube carpetas completas como ZIP
 
 ## 📋 Requisitos
 
 - Python 3.7 o superior
 - Una cuenta de Telegram
-- Bot de Telegram (gratuito)
+- Bot de Telegram (gratuito) con permisos de administrador
 
 ## 🚀 Instalación
 
 1. **Clona el repositorio**:
    ```bash
-   git clone https://github.com/tu-usuario/telegram-cloud.git
+   git clone https://github.com/tu-usuario/telegram-cloud-storage.git
    cd telegram-cloud-storage
    ```
 
@@ -34,9 +37,8 @@ Un sistema simple y gratuito de almacenamiento en la nube que utiliza Telegram c
 
 3. **Ejecuta la aplicación**:
    ```bash
-   streamlit run telegram_cloud_.py
+   streamlit run telegram_cloud.py
    ```
-   > 📁 La aplicación creará automáticamente la carpeta `data/` para guardar las credenciales y el índice de archivos.
 
 4. **Abre tu navegador** en `http://localhost:8501`
 
@@ -48,43 +50,57 @@ Un sistema simple y gratuito de almacenamiento en la nube que utiliza Telegram c
 2. Envía el comando `/newbot`
 3. Sigue las instrucciones para crear tu bot
 4. Copia el **Token del Bot** que te proporciona BotFather
-5. Guarda este token, lo necesitarás en la aplicación
+5. **🔑 IMPORTANTE**: Haz que tu bot sea **Administrador** del chat/grupo/canal donde lo uses
+6. **📌 CRÍTICO**: Asegúrate de que el bot tenga el permiso para **"Fijar Mensajes"**
 
-### 2. Obtener tu Chat ID
+### 2. Configuración del Chat
 
-La aplicación puede obtener automáticamente tu Chat ID:
+Para usar el bot, necesitas darle permisos de administrador:
 
-1. **Método automático** (recomendado):
-   - Busca tu bot en Telegram
-   - Envía cualquier mensaje al bot
-   - En la aplicación web, usa la función "Obtener Chat ID automáticamente"
+**Para chat privado:**
+- Simplemente envía un mensaje a tu bot
 
-2. **Método manual**:
-   - Puedes ingresar manualmente tu Chat ID si lo conoces
+**Para grupo o canal:**
+1. Añade el bot al grupo/canal
+2. Promociona el bot a **Administrador**
+3. Asegúrate de que tenga el permiso para **"Fijar Mensajes"**
+4. Envía cualquier mensaje en el grupo/canal
 
 ### 3. Configuración en la aplicación
 
 1. Abre la aplicación web
-2. En la configuración inicial:
+2. En el panel lateral:
    - Ingresa tu **Token del Bot**
-   - Configura tu **Chat ID** (automático o manual)
-3. ¡Listo! Ya puedes empezar a usar tu almacenamiento en la nube
+   - La aplicación detectará automáticamente los chats disponibles
+   - Selecciona el chat donde quieres almacenar tus archivos
+   - Presiona "Guardar Configuración"
+3. ¡Listo! La aplicación sincronizará automáticamente tu índice de archivos
 
 ## 📖 Uso
 
 ### 📤 Subir archivos
 
-1. Ve a la pestaña "Subir Archivos"
-2. Selecciona uno o varios archivos (máximo 2GB cada uno)
-3. Opcionalmente, cambia el nombre del archivo
-4. Presiona "Subir"
+1. Ve a la pestaña "Subir"
+2. **Archivos individuales**:
+   - Selecciona uno o varios archivos (máximo 2GB cada uno)
+   - Opcionalmente, cambia el nombre remoto del archivo
+   - Presiona "Subir"
+3. **Carpetas completas**:
+   - Ingresa la ruta local de la carpeta
+   - La aplicación creará un archivo ZIP automáticamente
+   - Personaliza el nombre del ZIP si lo deseas
+   - Presiona "Subir Carpeta"
 
 ### 📁 Gestionar archivos
 
-1. Ve a la pestaña "Mis Archivos"
-2. Busca archivos usando el campo de búsqueda
-3. Ordena por fecha, tamaño o nombre
-4. Descarga o elimina archivos según necesites
+1. Ve a la pestaña "Archivos"
+2. **🔄 Sincronización**: Usa el botón "Sincronizar Ahora" para actualizar el índice
+3. **🔍 Búsqueda**: Busca archivos usando el campo de búsqueda
+4. **📊 Ordenación**: Ordena por fecha, tamaño o nombre
+5. **📥 Descarga**: 
+   - Presiona "Preparar Descarga" para descargar el archivo de Telegram
+   - Luego presiona "¡Guardar Ahora!" para guardarlo en tu dispositivo
+6. **🗑️ Eliminación**: Elimina archivos del índice (permanecen en Telegram)
 
 ### 📊 Ver estadísticas
 
@@ -92,59 +108,92 @@ La aplicación puede obtener automáticamente tu Chat ID:
 2. Visualiza:
    - Total de archivos almacenados
    - Espacio utilizado
-   - Archivos más grandes
-   - Actividad reciente
+   - Promedio de tamaño por archivo
+   - Los 5 archivos más grandes
+   - Los 5 archivos más recientes
+
+## 🔄 Sincronización
+
+### Cómo funciona
+
+- **Índice remoto**: El índice de archivos se guarda como un archivo JSON fijado en tu chat de Telegram
+- **Sincronización automática**: Cada vez que subes o eliminas un archivo, el índice se actualiza automáticamente
+- **Acceso desde múltiples dispositivos**: Puedes acceder a tus archivos desde cualquier dispositivo usando el mismo token
+- **Consistencia**: Si falla la actualización del índice, la operación se revierte para mantener la consistencia
+
+### Sincronización manual
+
+Si necesitas sincronizar manualmente (por ejemplo, si alguien más modificó el chat):
+1. Ve a la pestaña "Archivos"
+2. Presiona el botón "🔄 Sincronizar Ahora"
 
 ## 🗂️ Estructura del proyecto
 
 ```
 telegram-cloud-storage/
-├── telegram_cloud_.py      # Aplicación principal
-├── requirements.txt        # Dependencias de Python
-├── README.md              # Este archivo
-├── .gitignore             # Archivos a ignorar en Git
-└── data/                  # Directorio de datos (se crea automáticamente)
-    ├── credentials.json   # Credenciales guardadas (NO se sube a Git)
-    └── telegram_cloud_index.json  # Índice de archivos (NO se sube a Git)
+├── telegram_cloud.py          # Aplicación principal
+├── requirements.txt           # Dependencias de Python
+├── README.md                 # Este archivo
+└── .gitignore               # Archivos a ignorar en Git
 ```
 
-> ⚠️ **Importante**: La carpeta `data/` y todos los archivos `.json` están incluidos en `.gitignore` por seguridad, ya que contienen información sensible como tokens y credenciales.
+## 🔧 Arquitectura técnica
 
-## 🔧 Configuración avanzada
+### Gestión de usuarios
+- **Hash único**: Cada usuario se identifica por un hash MD5 de su token de bot
+- **Aislamiento**: Los datos de cada usuario están completamente aislados
+- **Configuración temporal**: Solo se guarda la configuración básica localmente
 
-### Cambiar directorio de datos
+### Almacenamiento del índice
+- **Archivo remoto**: `_telegram_cloud_storage_index.v1.json`
+- **Mensaje fijado**: El índice siempre está fijado en el chat para fácil acceso
+- **Versionado**: Los índices antiguos se desanclan automáticamente
+- **Formato**: JSON con metadatos completos de cada archivo
 
-La aplicación permite configurar dónde se guardan los datos locales:
-
-- **🏠 Directorio del usuario**: `~/.telegram_cloud/`
-- **📁 Directorio del proyecto**: `./data/`
-- **🎯 Personalizado**: Cualquier ruta que especifiques
-
-### Variables de entorno
-
-El proyecto detecta automáticamente si se ejecuta en servicios de hosting como Heroku o Streamlit Cloud y ajusta la configuración de directorios accordingly.
+### Gestión de archivos
+- **Hash de contenido**: Cada archivo tiene un hash MD5 para detectar duplicados
+- **Metadatos completos**: Fecha de subida, tamaño, nombre original, file_id de Telegram
+- **Consistencia**: Las operaciones se revierten si falla la actualización del índice
 
 ## 🛡️ Seguridad y privacidad
 
-- **Datos locales**: Solo se guardan las credenciales y un índice de archivos localmente
-- **Archivos**: Se almacenan directamente en Telegram, no en servidores terceros
-- **Token del bot**: Se guarda de forma segura en tu sistema local
+- **Datos locales mínimos**: Solo se guarda configuración básica temporalmente
+- **Archivos en Telegram**: Se almacenan directamente en los servidores seguros de Telegram
+- **Token del bot**: Se guarda temporalmente solo durante la sesión
 - **Sin rastreo**: La aplicación no envía datos a terceros
-- **⚠️ Git**: Los archivos de configuración y credenciales están excluidos del control de versiones por seguridad
+- **Aislamiento por usuario**: Cada token crea un espacio completamente independiente
 
-### 🔐 Archivos sensibles
-
-Los siguientes archivos **NO se suben a Git** por seguridad:
-- `data/credentials.json` - Contiene tu token de bot y Chat ID
-- `data/telegram_cloud_index.json` - Índice de tus archivos
-- Cualquier archivo `.json` en el proyecto
-
-## ⚠️ Limitaciones
+## ⚠️ Limitaciones importantes
 
 - **Tamaño máximo por archivo**: 2GB (limitación de Telegram)
-- **Tipos de archivo**: Todos los tipos son compatibles
-- **Velocidad**: Depende de tu conexión a internet y los servidores de Telegram
+- **Permisos requeridos**: El bot DEBE ser administrador con permiso para "Fijar Mensajes"
 - **Eliminación**: Los archivos eliminados del índice permanecen en Telegram
+- **Dependencia de Telegram**: Si Telegram está caído, el servicio no funciona
+- **Velocidad**: Depende de tu conexión y los servidores de Telegram
+
+## 🚨 Troubleshooting
+
+### Error: "No se pudo fijar el nuevo índice"
+**Causa**: El bot no tiene permisos de administrador o no puede fijar mensajes.
+**Solución**: 
+1. Ve a la configuración del grupo/canal
+2. Promociona el bot a administrador
+3. Asegúrate de que tenga el permiso "Fijar Mensajes" habilitado
+
+### Error: "No se encontró un índice remoto"
+**Causa**: Es normal en el primer uso o si se eliminó el mensaje fijado.
+**Solución**: Simplemente sube un archivo y se creará automáticamente el índice.
+
+### Error: "Chat ID no configurado"
+**Causa**: La configuración no se completó correctamente.
+**Solución**: 
+1. Ve al panel lateral
+2. Presiona "🔄 Reiniciar configuración"
+3. Vuelve a configurar desde cero
+
+### La aplicación no detecta chats
+**Causa**: No se han enviado mensajes al bot recientemente.
+**Solución**: Envía un mensaje a tu bot y recarga la página.
 
 ## 🤝 Contribuir
 
@@ -158,24 +207,28 @@ Los siguientes archivos **NO se suben a Git** por seguridad:
 
 ## 📝 Ideas para futuras mejoras
 
-- [ ] Organización por carpetas
-- [ ] Compartir archivos con otros usuarios
 - [ ] Cifrado de archivos antes de subir
-- [ ] Sincronización automática de carpetas
+- [ ] Organización por carpetas virtuales
+- [ ] Compartir archivos con otros usuarios
+- [ ] Sincronización automática de carpetas locales
 - [ ] API REST para integración con otras aplicaciones
-- [ ] Aplicación de escritorio
+- [ ] Aplicación de escritorio nativa
 - [ ] Vista previa de archivos (imágenes, PDFs, etc.)
+- [ ] Papelera de reciclaje para archivos eliminados
+- [ ] Estadísticas de uso más detalladas
+- [ ] Notificaciones push para cambios
 
 ## 🐛 Reportar problemas
 
 Si encuentras algún problema:
 
-1. Revisa si ya existe un issue similar
-2. Crea un nuevo issue con:
+1. Revisa la sección de **Troubleshooting** primero
+2. Verifica que el bot tenga los permisos correctos
+3. Crea un issue con:
    - Descripción detallada del problema
    - Pasos para reproducirlo
-   - Versión de Python y sistema operativo
    - Logs de error si los hay
+   - Configuración de permisos del bot
 
 ## 📄 Licencia
 
@@ -194,4 +247,5 @@ Este proyecto está bajo la Licencia MIT. Consulta el archivo `LICENSE` para má
 **🔗 Enlaces útiles:**
 - [Documentación de Telegram Bot API](https://core.telegram.org/bots/api)
 - [Documentación de Streamlit](https://docs.streamlit.io/)
-- [Cómo crear un bot de Telegram](https://core.telegram.org/bots#3-how-do-i-create-a-bot)# telegram-cloud
+- [Cómo crear un bot de Telegram](https://core.telegram.org/bots#3-how-do-i-create-a-bot)
+- [Gestión de permisos en grupos de Telegram](https://telegram.org/tour/groups)
