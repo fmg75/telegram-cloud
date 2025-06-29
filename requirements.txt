@@ -1,0 +1,44 @@
+# Telegram Cloud Storage - Requirements
+# Dependencias principales para la aplicación
+
+# Framework web principal
+streamlit>=1.28.0
+
+# Biblioteca para realizar peticiones HTTP a la API de Telegram
+requests>=2.31.0
+
+# Dependencias estándar de Python (incluidas por defecto, pero listadas para claridad)
+# pathlib - Manejo de rutas (Python 3.4+)
+# json - Manejo de JSON (Python estándar)
+# hashlib - Funciones de hash (Python estándar)
+# datetime - Manejo de fechas (Python estándar)
+# os - Funciones del sistema operativo (Python estándar)
+# sys - Funciones del sistema (Python estándar)
+# time - Funciones de tiempo (Python estándar)
+
+# Dependencias opcionales para funcionalidades extendidas
+# (descomenta si necesitas estas funcionalidades)
+
+# Para manejo avanzado de archivos
+# python-magic>=0.4.27
+
+# Para cifrado de archivos (funcionalidad futura)
+# cryptography>=41.0.0
+
+# Para compresión de archivos
+# gzip  # Incluido en Python estándar
+
+# Para manejo de diferentes formatos de archivo
+# pillow>=10.0.0  # Para imágenes
+# python-docx>=0.8.11  # Para documentos Word
+# PyPDF2>=3.0.0  # Para archivos PDF
+
+# Para logging avanzado
+# loguru>=0.7.0
+
+# Para validación de datos
+# pydantic>=2.0.0
+
+# Para testing (desarrollo)
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
