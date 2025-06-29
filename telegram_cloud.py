@@ -13,6 +13,8 @@ import requests
 from datetime import datetime
 from pathlib import Path
 import time
+import zipfile
+import io
 
 # Configuración de la página
 st.set_page_config(
@@ -254,16 +256,6 @@ def get_data_directory():
     data_dir.mkdir(exist_ok=True, parents=True)
     return data_dir
 
-def is_safe_directory(path):
-    """Verifica si un directorio es seguro (no está en ubicaciones de nube)"""
-    path_str = str(path).lower()
-    unsafe_patterns = [
-        'dropbox', 'onedrive', 'googledrive', 'google drive', 'icloud',
-        'box', 'mega', 'sync', 'cloud', 'backup'
-    ]
-    
-    return not any(pattern in path_str for pattern in unsafe_patterns)
-
 def format_file_size(size_bytes):
     """Formatea el tamaño del archivo"""
     if size_bytes < 1024:
@@ -274,6 +266,18 @@ def format_file_size(size_bytes):
         return f"{size_bytes/(1024**2):.1f} MB"
     else:
         return f"{size_bytes/(1024**3):.1f} GB"
+
+def zip_folder(folder_path):
+    """Comprime una carpeta en un archivo ZIP en memoria"""
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, start=folder_path)
+                zipf.write(file_path, arcname)
+    zip_buffer.seek(0)
+    return zip_buffer
 
 def main():
     st.title("☁️ Telegram Cloud Storage")
@@ -292,74 +296,6 @@ def main():
         
         # Mostrar directorio actual
         st.info(f"📁 Actual: `{current_dir}`")
-        
-        # Botón para cambiar directorio
-        if st.button("📁 Cambiar ubicación"):
-            st.session_state.show_directory_config = True
-        
-        # Configuración de directorio
-        if st.session_state.get('show_directory_config', False):
-            st.markdown("---")
-            st.subheader("🔧 Configurar Directorio")
-            
-            # Opciones predefinidas
-            default_dir = get_default_data_directory()
-            
-            option = st.radio(
-                "Selecciona una opción:",
-                [
-                    f"🏠 Usar directorio por defecto",
-                    "📁 Especificar directorio personalizado"
-                ]
-            )
-            
-            if option.startswith("🏠"):
-                new_dir = default_dir
-                st.success(f"✅ Directorio por defecto: `{new_dir}`")
-            else:
-                custom_path = st.text_input(
-                    "📂 Ruta personalizada:",
-                    help="Ingresa la ruta completa donde quieres guardar los datos"
-                )
-                
-                if custom_path:
-                    new_dir = Path(custom_path)
-                    
-                    # Verificar que sea un directorio seguro
-                    if not is_safe_directory(new_dir):
-                        st.warning("⚠️ **Advertencia de Seguridad**: No se recomienda usar carpetas de servicios en la nube (Dropbox, OneDrive, etc.) para almacenar credenciales y datos sensibles.")
-                        
-                        if st.checkbox("Entiendo los riesgos y quiero continuar"):
-                            pass
-                        else:
-                            new_dir = None
-                    
-                    if new_dir:
-                        try:
-                            new_dir.mkdir(exist_ok=True, parents=True)
-                            st.success(f"✅ Directorio válido: `{new_dir}`")
-                        except Exception as e:
-                            st.error(f"❌ Error al crear directorio: {e}")
-                            new_dir = None
-                else:
-                    new_dir = None
-            
-            # Botones de acción
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("💾 Aplicar", disabled=not new_dir):
-                    if config:
-                        save_config(config['bot_token'], config['chat_id'], new_dir)
-                        st.success("✅ Directorio actualizado")
-                    else:
-                        st.session_state.custom_data_dir = str(new_dir)
-                    st.session_state.show_directory_config = False
-                    st.rerun()
-            
-            with col2:
-                if st.button("❌ Cancelar"):
-                    st.session_state.show_directory_config = False
-                    st.rerun()
         
         # Botón para explorar directorio
         if st.button("🔍 Explorar directorio"):
@@ -453,13 +389,11 @@ def main():
                             selected_chat = next(chat for chat in st.session_state.available_chats if chat['display'] == selected)
                             
                             if st.button("💾 Guardar configuración"):
-                                # Usar directorio personalizado si se configuró
-                                data_dir = st.session_state.get('custom_data_dir', None)
-                                save_config(st.session_state.bot_token, selected_chat['id'], data_dir)
+                                save_config(st.session_state.bot_token, selected_chat['id'])
                                 st.success("✅ Configuración guardada exitosamente")
                                 st.balloons()
                                 # Limpiar session state
-                                for key in ['bot_token', 'available_chats', 'custom_data_dir']:
+                                for key in ['bot_token', 'available_chats']:
                                     if key in st.session_state:
                                         del st.session_state[key]
                                 time.sleep(1)
@@ -472,14 +406,12 @@ def main():
                         try:
                             chat_id = int(chat_id)
                             if st.button("💾 Guardar configuración"):
-                                data_dir = st.session_state.get('custom_data_dir', None)
-                                save_config(st.session_state.bot_token, chat_id, data_dir)
+                                save_config(st.session_state.bot_token, chat_id)
                                 st.success("✅ Configuración guardada exitosamente")
                                 st.balloons()
                                 # Limpiar session state
-                                for key in ['bot_token', 'custom_data_dir']:
-                                    if key in st.session_state:
-                                        del st.session_state[key]
+                                if 'bot_token' in st.session_state:
+                                    del st.session_state['bot_token']
                                 time.sleep(1)
                                 st.rerun()
                         except ValueError:
@@ -500,39 +432,89 @@ def main():
         with tab1:
             st.header("📤 Subir Archivos")
             
-            uploaded_files = st.file_uploader(
-                "Selecciona archivos para subir:",
-                accept_multiple_files=True,
-                help="Máximo 2GB por archivo"
+            # Opción para subir archivos o carpetas
+            upload_option = st.radio(
+                "Selecciona el tipo de subida:",
+                ["📄 Archivos", "📂 Carpeta (se comprimirá en ZIP)"],
+                horizontal=True
             )
             
-            if uploaded_files:
-                st.subheader("📋 Archivos seleccionados:")
+            if upload_option == "📄 Archivos":
+                uploaded_files = st.file_uploader(
+                    "Selecciona archivos para subir:",
+                    accept_multiple_files=True,
+                    help="Máximo 2GB por archivo"
+                )
                 
-                for uploaded_file in uploaded_files:
-                    with st.expander(f"📄 {uploaded_file.name} ({format_file_size(uploaded_file.size)})"):
-                        col1, col2 = st.columns([3, 1])
-                        
-                        with col1:
-                            custom_name = st.text_input(
-                                "Nombre personalizado (opcional):",
-                                value=uploaded_file.name,
-                                key=f"name_{uploaded_file.name}"
-                            )
-                        
-                        with col2:
-                            if st.button("📤 Subir", key=f"upload_{uploaded_file.name}"):
-                                with st.spinner(f"Subiendo {uploaded_file.name}..."):
-                                    file_bytes = uploaded_file.read()
+                if uploaded_files:
+                    st.subheader("📋 Archivos seleccionados:")
+                    
+                    for uploaded_file in uploaded_files:
+                        with st.expander(f"📄 {uploaded_file.name} ({format_file_size(uploaded_file.size)})"):
+                            col1, col2 = st.columns([3, 1])
+                            
+                            with col1:
+                                custom_name = st.text_input(
+                                    "Nombre personalizado (opcional):",
+                                    value=uploaded_file.name,
+                                    key=f"name_{uploaded_file.name}"
+                                )
+                            
+                            with col2:
+                                if st.button("📤 Subir", key=f"upload_{uploaded_file.name}"):
+                                    with st.spinner(f"Subiendo {uploaded_file.name}..."):
+                                        file_bytes = uploaded_file.read()
+                                        success, message = client.upload_file(
+                                            file_bytes, uploaded_file.name, custom_name
+                                        )
+                                    
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                    else:
+                                        st.error(f"❌ {message}")
+            
+            else:  # Subir carpeta
+                st.markdown("### 📂 Subir carpeta")
+                folder_path = st.text_input(
+                    "Ingresa la ruta completa de la carpeta a subir:",
+                    placeholder="Ejemplo: C:/Users/MiUsuario/Documents/MiCarpeta"
+                )
+                
+                if folder_path and os.path.isdir(folder_path):
+                    folder_name = os.path.basename(folder_path)
+                    zip_name = f"{folder_name}.zip"
+                    
+                    col1, col2 = st.columns([3, 1])
+                    
+                    with col1:
+                        custom_name = st.text_input(
+                            "Nombre personalizado para el ZIP (opcional):",
+                            value=zip_name,
+                            key="folder_zip_name"
+                        )
+                    
+                    with col2:
+                        if st.button("📤 Subir Carpeta"):
+                            with st.spinner(f"Comprimiendo y subiendo {folder_name}..."):
+                                try:
+                                    # Comprimir carpeta
+                                    zip_buffer = zip_folder(folder_path)
+                                    zip_bytes = zip_buffer.getvalue()
+                                    
+                                    # Subir archivo ZIP
                                     success, message = client.upload_file(
-                                        file_bytes, uploaded_file.name, custom_name
+                                        zip_bytes, zip_name, custom_name
                                     )
-                                
-                                if success:
-                                    st.success(f"✅ {message}")
-                                else:
-                                    st.error(f"❌ {message}")
-        
+                                    
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                    else:
+                                        st.error(f"❌ {message}")
+                                except Exception as e:
+                                    st.error(f"❌ Error al procesar carpeta: {str(e)}")
+                elif folder_path:
+                    st.error("❌ La ruta especificada no es un directorio válido")
+
         with tab2:
             st.header("📁 Mis Archivos")
             
@@ -542,16 +524,21 @@ def main():
                 # Filtros
                 col1, col2 = st.columns([2, 1])
                 with col1:
-                    search_term = st.text_input("🔍 Buscar archivos:", "")
+                    search_term = st.text_input("🔍 Buscar archivos:", "", key="search_term")
                 with col2:
                     sort_by = st.selectbox("📊 Ordenar por:", 
-                                          ["Fecha (más reciente)", "Fecha (más antiguo)", 
-                                           "Tamaño (mayor)", "Tamaño (menor)", "Nombre A-Z", "Nombre Z-A"])
+                                        ["Fecha (más reciente)", "Fecha (más antiguo)", 
+                                         "Tamaño (mayor)", "Tamaño (menor)", "Nombre A-Z", "Nombre Z-A"],
+                                        key="sort_by")
                 
                 # Filtrar archivos
                 filtered_files = {}
                 for name, info in client.index.items():
-                    if search_term.lower() in name.lower():
+                    # Buscar por nombre o extensión
+                    if not search_term or (
+                        search_term.lower() in name.lower() or 
+                        (search_term.startswith('.') and name.lower().endswith(search_term.lower()))
+                    ):
                         filtered_files[name] = info
                 
                 # Ordenar archivos
@@ -576,7 +563,11 @@ def main():
                 
                 # Mostrar archivos
                 for name, info in sorted_files:
-                    with st.expander(f"📄 {name} ({format_file_size(info['size'])})"):
+                    expander_title = f"📄 {name} ({format_file_size(info['size'])})"
+                    
+                    with st.expander(expander_title):
+                        st.write(f"**Nombre:** {name}")
+                        
                         col1, col2, col3 = st.columns([2, 1, 1])
                         
                         with col1:
@@ -611,7 +602,7 @@ def main():
                                     st.rerun()
                                 else:
                                     st.error(f"❌ {message}")
-        
+
         with tab3:
             st.header("📊 Estadísticas")
             
