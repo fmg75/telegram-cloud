@@ -15,7 +15,6 @@ import tempfile
 import zipfile
 import io
 import logging
-import uuid
 
 # Configuración
 logging.basicConfig(level=logging.INFO)
@@ -352,25 +351,21 @@ def zip_folder(folder_path):
 
 def main():
     st.title("☁️ Telegram Cloud Storage")
-    st.markdown("*Sistema multiusuario de almacenamiento en la nube (con Sincronización)*")
+    st.markdown("*Sistema de almacenamiento en la nube*")
     
     with st.expander("📌 Cómo empezar (Haz clic para ver)"):
         st.markdown("""
         1. **Obtén tu token**:
-           - Busca **@BotFather** en Telegram y crea tu bot.
+           - Busca **@BotFather** en Telegram, envia /newbot, sigue las instrucciones.
            - Copia el token que te proporcionará.
-        
-        2. **Prepara tu Chat**:
-           - Crea un **Canal Privado** o un **Grupo Privado** en Telegram.
-           - Añade tu bot al canal/grupo.
            - **¡MUY IMPORTANTE!** Promociona tu bot a **Administrador** y asegúrate de que tiene el permiso para **Fijar Mensajes**.
         
         3. **Configuración en la App**:
            - Ingresa el token en el panel lateral.
-           - Envía un mensaje cualquiera al canal/grupo.
+           - Envía un mensaje cualquiera al bot. "Hola"
            - La aplicación detectará automáticamente tu Chat ID y se configurará.
         
-        4. **¡Listo!** Tu almacenamiento ahora está sincronizado entre dispositivos.
+        4. **¡Listo!** 
         """)
     
     if 'client' not in st.session_state:
