@@ -50,31 +50,28 @@ Un sistema de almacenamiento en la nube que utiliza Telegram como backend con si
 2. Envía el comando `/newbot`
 3. Sigue las instrucciones para crear tu bot
 4. Copia el **Token del Bot** que te proporciona BotFather
-5. **🔑 IMPORTANTE**: Haz que tu bot sea **Administrador** del chat/grupo/canal donde lo uses
-6. **📌 CRÍTICO**: Asegúrate de que el bot tenga el permiso para **"Fijar Mensajes"**
 
-### 2. Configuración del Chat
+### 2. Configurar permisos del Bot
 
-Para usar el bot, necesitas darle permisos de administrador:
+**🔑 IMPORTANTE**: Tu bot DEBE ser **Administrador** con permiso para **"Fijar Mensajes"**
 
 **Para chat privado:**
-- Simplemente envía un mensaje a tu bot
+- No necesitas permisos especiales, solo envía un mensaje a tu bot
 
 **Para grupo o canal:**
 1. Añade el bot al grupo/canal
 2. Promociona el bot a **Administrador**
 3. Asegúrate de que tenga el permiso para **"Fijar Mensajes"**
-4. Envía cualquier mensaje en el grupo/canal
 
 ### 3. Configuración en la aplicación
 
 1. Abre la aplicación web
-2. En el panel lateral:
-   - Ingresa tu **Token del Bot**
-   - La aplicación detectará automáticamente los chats disponibles
-   - Selecciona el chat donde quieres almacenar tus archivos
-   - Presiona "Guardar Configuración"
-3. ¡Listo! La aplicación sincronizará automáticamente tu índice de archivos
+2. En el panel lateral, ingresa tu **Token del Bot**
+3. **Envía un mensaje** a tu bot/grupo/canal (puede ser simplemente "Hola")
+4. La aplicación detectará automáticamente los chats disponibles
+5. Selecciona el chat donde quieres almacenar tus archivos
+6. Presiona "Guardar Configuración"
+7. ¡Listo! La aplicación sincronizará automáticamente tu índice de archivos
 
 ## 📖 Uso
 
