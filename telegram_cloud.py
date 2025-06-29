@@ -15,6 +15,11 @@ from pathlib import Path
 import time
 import zipfile
 import io
+import logging
+
+# Configuración de logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Configuración de la página
 st.set_page_config(
@@ -23,6 +28,52 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+def ensure_directory_permissions(directory):
+    """Asegura que el directorio tenga los permisos correctos"""
+    try:
+        directory.mkdir(exist_ok=True, parents=True)
+        if os.name != 'nt':  # Solo para Linux/macOS
+            os.chmod(directory, 0o700)  # rwx para el usuario dueño
+        logger.info(f"Directorio configurado con permisos: {directory}")
+        return True
+    except Exception as e:
+        logger.error(f"Error configurando directorio {directory}: {str(e)}")
+        st.error(f"❌ No se pudo configurar el directorio: {str(e)}")
+        return False
+
+def get_default_data_directory():
+    """Obtiene el directorio de datos por defecto (seguro, local)"""
+    try:
+        user_home = Path.home()
+        logger.info(f"Directorio home detectado: {user_home}")
+
+        # Verificar permisos de escritura
+        test_dir = user_home / ".telegram_cloud_test"
+        test_dir.mkdir(exist_ok=True, parents=True)
+        test_file = test_dir / "test.txt"
+        test_file.write_text("test")
+        test_file.unlink()
+        test_dir.rmdir()
+
+        # Definir ruta según SO
+        if os.name == 'nt':  # Windows
+            base_dir = user_home / "Documents" / "TelegramCloudStorage"
+        else:  # Linux/macOS
+            base_dir = user_home / ".telegram_cloud_storage"
+
+        logger.info(f"Usando directorio de datos: {base_dir}")
+        return base_dir
+
+    except (PermissionError, OSError) as e:
+        logger.warning(f"No se pudo escribir en el directorio home: {str(e)}")
+        
+        # Fallback: usar directorio temporal
+        import tempfile
+        base_dir = Path(tempfile.gettempdir()) / "telegram_cloud_storage"
+        logger.warning(f"Usando directorio temporal como fallback: {base_dir}")
+        st.warning(f"⚠️ No se pudo escribir en el directorio home. Usando directorio temporal: {base_dir}")
+        return base_dir
 
 class TelegramCloudStorage:
     def __init__(self, bot_token, chat_id, data_directory=None):
@@ -35,7 +86,9 @@ class TelegramCloudStorage:
         else:
             self.data_dir = get_default_data_directory()
         
-        self.data_dir.mkdir(exist_ok=True, parents=True)
+        if not ensure_directory_permissions(self.data_dir):
+            raise RuntimeError(f"No se pudo configurar el directorio de datos: {self.data_dir}")
+        
         self.index_file = self.data_dir / "telegram_cloud_index.json"
         self.load_index()
     
@@ -44,13 +97,23 @@ class TelegramCloudStorage:
         try:
             with open(self.index_file, 'r') as f:
                 self.index = json.load(f)
+            logger.info(f"Índice cargado correctamente desde {self.index_file}")
         except FileNotFoundError:
             self.index = {}
+            logger.info("No se encontró archivo de índice, creando uno nuevo")
+        except json.JSONDecodeError:
+            self.index = {}
+            logger.error("Índice corrupto, creando uno nuevo")
     
     def save_index(self):
         """Guarda el índice de archivos"""
-        with open(self.index_file, 'w') as f:
-            json.dump(self.index, f, indent=2)
+        try:
+            with open(self.index_file, 'w') as f:
+                json.dump(self.index, f, indent=2)
+            logger.info(f"Índice guardado correctamente en {self.index_file}")
+        except Exception as e:
+            logger.error(f"Error guardando índice: {str(e)}")
+            raise
     
     def get_file_hash(self, file_bytes):
         """Calcula el hash MD5 de bytes de archivo"""
@@ -79,6 +142,7 @@ class TelegramCloudStorage:
                 'caption': f"☁️ {remote_name}\n🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             }
             
+            logger.info(f"Intentando subir archivo: {remote_name} ({file_size} bytes)")
             response = requests.post(f"{self.base_url}/sendDocument", 
                                    files=files, data=data, timeout=60)
             
@@ -97,14 +161,21 @@ class TelegramCloudStorage:
                     }
                     self.save_index()
                     
+                    logger.info(f"Archivo subido exitosamente: {remote_name}")
                     return True, f"Archivo subido exitosamente: {remote_name}"
                 else:
-                    return False, f"Error de API: {result.get('description', 'Error desconocido')}"
+                    error_msg = f"Error de API: {result.get('description', 'Error desconocido')}"
+                    logger.error(error_msg)
+                    return False, error_msg
             else:
-                return False, f"Error HTTP: {response.status_code}"
+                error_msg = f"Error HTTP: {response.status_code}"
+                logger.error(error_msg)
+                return False, error_msg
                 
         except Exception as e:
-            return False, f"Error al subir archivo: {str(e)}"
+            error_msg = f"Error al subir archivo: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
     
     def download_file(self, remote_name):
         """Descarga un archivo de Telegram"""
@@ -115,6 +186,7 @@ class TelegramCloudStorage:
         file_id = file_info['file_id']
         
         try:
+            logger.info(f"Intentando descargar archivo: {remote_name}")
             # Obtener información del archivo
             response = requests.get(f"{self.base_url}/getFile?file_id={file_id}")
             
@@ -127,25 +199,40 @@ class TelegramCloudStorage:
                     # Descargar archivo
                     file_response = requests.get(file_url)
                     if file_response.status_code == 200:
+                        logger.info(f"Archivo descargado exitosamente: {remote_name}")
                         return file_response.content, f"Archivo descargado exitosamente"
                     else:
-                        return None, f"Error al descargar: {file_response.status_code}"
+                        error_msg = f"Error al descargar: {file_response.status_code}"
+                        logger.error(error_msg)
+                        return None, error_msg
                 else:
-                    return None, f"Error de API: {result.get('description', 'Error desconocido')}"
+                    error_msg = f"Error de API: {result.get('description', 'Error desconocido')}"
+                    logger.error(error_msg)
+                    return None, error_msg
             else:
-                return None, f"Error HTTP: {response.status_code}"
+                error_msg = f"Error HTTP: {response.status_code}"
+                logger.error(error_msg)
+                return None, error_msg
                 
         except Exception as e:
-            return None, f"Error al descargar archivo: {str(e)}"
+            error_msg = f"Error al descargar archivo: {str(e)}"
+            logger.error(error_msg)
+            return None, error_msg
     
     def delete_file(self, remote_name):
         """Elimina un archivo del índice"""
         if remote_name not in self.index:
             return False, f"Archivo '{remote_name}' no encontrado"
         
-        del self.index[remote_name]
-        self.save_index()
-        return True, f"Archivo '{remote_name}' eliminado del índice"
+        try:
+            del self.index[remote_name]
+            self.save_index()
+            logger.info(f"Archivo eliminado del índice: {remote_name}")
+            return True, f"Archivo '{remote_name}' eliminado del índice"
+        except Exception as e:
+            error_msg = f"Error eliminando archivo del índice: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
 
 def get_chat_id(bot_token):
     """Obtiene Chat IDs del bot"""
@@ -207,20 +294,11 @@ def get_chat_id(bot_token):
     except Exception as e:
         return [], f"Error: {str(e)}"
 
-def get_default_data_directory():
-    """Obtiene el directorio de datos por defecto (seguro, local)"""
-    # Directorio por defecto en la carpeta del usuario
-    if os.name == 'nt':  # Windows
-        base_dir = Path.home() / "Documents" / "TelegramCloudStorage"
-    else:  # Linux/macOS
-        base_dir = Path.home() / ".telegram_cloud_storage"
-    
-    return base_dir
-
 def get_config_file():
     """Obtiene la ubicación del archivo de configuración"""
     config_dir = get_default_data_directory()
-    config_dir.mkdir(exist_ok=True, parents=True)
+    if not ensure_directory_permissions(config_dir):
+        raise RuntimeError(f"No se pudo configurar el directorio de configuración: {config_dir}")
     return config_dir / "config.json"
 
 def save_config(bot_token, chat_id, data_directory=None):
@@ -233,16 +311,28 @@ def save_config(bot_token, chat_id, data_directory=None):
         'saved_date': datetime.now().isoformat()
     }
     
-    with open(config_file, 'w') as f:
-        json.dump(config, f, indent=2)
+    try:
+        with open(config_file, 'w') as f:
+            json.dump(config, f, indent=2)
+        logger.info(f"Configuración guardada en {config_file}")
+        return True
+    except Exception as e:
+        logger.error(f"Error guardando configuración: {str(e)}")
+        return False
 
 def load_config():
     """Carga la configuración guardada"""
     config_file = get_config_file()
     try:
         with open(config_file, 'r') as f:
-            return json.load(f)
+            config = json.load(f)
+        logger.info(f"Configuración cargada desde {config_file}")
+        return config
     except FileNotFoundError:
+        logger.info("No se encontró archivo de configuración")
+        return None
+    except json.JSONDecodeError:
+        logger.error("Archivo de configuración corrupto")
         return None
 
 def get_data_directory():
@@ -253,7 +343,9 @@ def get_data_directory():
     else:
         data_dir = get_default_data_directory()
     
-    data_dir.mkdir(exist_ok=True, parents=True)
+    if not ensure_directory_permissions(data_dir):
+        raise RuntimeError(f"No se pudo configurar el directorio de datos: {data_dir}")
+    
     return data_dir
 
 def format_file_size(size_bytes):
@@ -389,15 +481,17 @@ def main():
                             selected_chat = next(chat for chat in st.session_state.available_chats if chat['display'] == selected)
                             
                             if st.button("💾 Guardar configuración"):
-                                save_config(st.session_state.bot_token, selected_chat['id'])
-                                st.success("✅ Configuración guardada exitosamente")
-                                st.balloons()
-                                # Limpiar session state
-                                for key in ['bot_token', 'available_chats']:
-                                    if key in st.session_state:
-                                        del st.session_state[key]
-                                time.sleep(1)
-                                st.rerun()
+                                if save_config(st.session_state.bot_token, selected_chat['id']):
+                                    st.success("✅ Configuración guardada exitosamente")
+                                    st.balloons()
+                                    # Limpiar session state
+                                    for key in ['bot_token', 'available_chats']:
+                                        if key in st.session_state:
+                                            del st.session_state[key]
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Error al guardar la configuración")
                 
                 else:  # Ingresar manualmente
                     chat_id = st.text_input("📱 Chat ID:", help="Ingresa tu Chat ID (número)")
@@ -406,14 +500,16 @@ def main():
                         try:
                             chat_id = int(chat_id)
                             if st.button("💾 Guardar configuración"):
-                                save_config(st.session_state.bot_token, chat_id)
-                                st.success("✅ Configuración guardada exitosamente")
-                                st.balloons()
-                                # Limpiar session state
-                                if 'bot_token' in st.session_state:
-                                    del st.session_state['bot_token']
-                                time.sleep(1)
-                                st.rerun()
+                                if save_config(st.session_state.bot_token, chat_id):
+                                    st.success("✅ Configuración guardada exitosamente")
+                                    st.balloons()
+                                    # Limpiar session state
+                                    if 'bot_token' in st.session_state:
+                                        del st.session_state['bot_token']
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Error al guardar la configuración")
                         except ValueError:
                             st.error("❌ El Chat ID debe ser un número")
     
@@ -423,8 +519,12 @@ def main():
         chat_id = config['chat_id']
         
         # Inicializar cliente con directorio configurado
-        data_dir = get_data_directory()
-        client = TelegramCloudStorage(bot_token, chat_id, data_dir)
+        try:
+            data_dir = get_data_directory()
+            client = TelegramCloudStorage(bot_token, chat_id, data_dir)
+        except Exception as e:
+            st.error(f"❌ Error al inicializar el cliente: {str(e)}")
+            st.stop()
         
         # Tabs principales
         tab1, tab2, tab3 = st.tabs(["📤 Subir Archivos", "📁 Mis Archivos", "📊 Estadísticas"])
