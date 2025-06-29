@@ -352,7 +352,7 @@ def zip_folder(folder_path):
 
 def main():
     st.title("☁️ Telegram Cloud Storage")
-    st.markdown("*Sistema multiusuario de almacenamiento en la nube (con Sincronización)*") # MODIFICADO
+    st.markdown("*Sistema multiusuario de almacenamiento en la nube (con Sincronización)*")
     
     with st.expander("📌 Cómo empezar (Haz clic para ver)"):
         st.markdown("""
@@ -371,14 +371,11 @@ def main():
            - La aplicación detectará automáticamente tu Chat ID y se configurará.
         
         4. **¡Listo!** Tu almacenamiento ahora está sincronizado entre dispositivos.
-        """) # MODIFICADO
+        """)
     
-    # ... (El resto de la función main() permanece sin cambios)
-    # Inicialización de session state
     if 'client' not in st.session_state:
         st.session_state.client = None
     
-    # Sidebar - Configuración simplificada
     with st.sidebar:
         st.header("⚙️ Configuración")
         
@@ -434,6 +431,7 @@ def main():
     tab1, tab2, tab3 = st.tabs(["📤 Subir", "📁 Archivos", "📊 Estadísticas"])
     
     with tab1:
+        # ... (código de la tab1 sin cambios) ...
         st.header("📤 Subir Archivos")
         uploaded_files = st.file_uploader(
             "Selecciona archivos:",
@@ -491,7 +489,18 @@ def main():
             st.error("La ruta ingresada no es un directorio válido.")
 
     with tab2:
-        st.header("📁 Mis Archivos")
+        # MODIFICADO: Añadimos una columna para el botón de sincronización
+        col_header, col_button = st.columns([3, 1])
+        with col_header:
+            st.header("📁 Mis Archivos")
+        
+        # NUEVO: Botón de Sincronización Manual
+        with col_button:
+            st.write("") # Espaciador para alinear verticalmente
+            if st.button("🔄 Sincronizar Ahora"):
+                client.load_index_from_telegram()
+                st.rerun()
+
         if not client.index:
             st.info("📭 No tienes archivos almacenados")
         else:
@@ -519,6 +528,7 @@ def main():
             for name, info in sorted_files:
                 file_unique_id = hashlib.md5(name.encode()).hexdigest()[:8]
                 with st.expander(f"📄 {name} ({format_size(info['size'])})"):
+                    # (El resto del código para mostrar los archivos no cambia)
                     col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
                     with col1:
                         upload_date = datetime.fromisoformat(info['upload_date'])
@@ -526,13 +536,12 @@ def main():
                         st.caption(f"Nombre original: {info.get('original_filename', name)}")
                         st.caption(f"Hash: {info['hash'][:16]}...")
                     with col2:
-                        # Botón de descarga preparado
                         st.download_button(
                             label="📥 Descargar",
-                            data=b'', # Placeholder, se llenará al hacer clic
+                            data=b'',
                             file_name=name,
                             key=f"dl_btn_{file_unique_id}",
-                            disabled=True # Se habilita con la lógica de abajo
+                            disabled=True
                         )
                     with col3:
                         if st.button("🗑️ Eliminar", key=f"delete_{file_unique_id}"):
@@ -543,13 +552,7 @@ def main():
                             else:
                                 st.error(message)
                     
-                    # Lógica para la descarga "on-demand"
-                    if f'download_state_{file_unique_id}' not in st.session_state:
-                        st.session_state[f'download_state_{file_unique_id}'] = 'idle'
-
-                    # No hay un botón de "preparar descarga", el download_button de streamlit no funciona bien con estados dinámicos.
-                    # El enfoque más simple es un botón normal que, al ser presionado, genera el download_button real.
-                    with col2: # Re-usamos la columna
+                    with col2:
                         if st.button("Preparar Descarga", key=f"prep_dl_{file_unique_id}"):
                              with st.spinner("Descargando..."):
                                 content, message = client.download_file(name)
@@ -567,10 +570,11 @@ def main():
                             mime='application/octet-stream',
                             key=f"save_{file_unique_id}"
                          )
-                         # Limpiar estado después de generar el botón
                          del st.session_state[f'dl_data_{file_unique_id}']
 
+
     with tab3:
+        # ... (código de la tab3 sin cambios) ...
         st.header("📊 Estadísticas")
         if not client.index:
             st.info("📭 No hay datos disponibles")
