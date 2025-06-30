@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Telegram Cloud Storage - Versión Optimizada
+Telegram Cloud Storage - Versión Simplificada
 Sistema de almacenamiento en la nube usando Telegram con enlaces cortos.
 """
 
@@ -95,7 +95,7 @@ class TelegramCloudStorage:
                 data = response.json()
                 if data['ok'] and data['result']:
                     chats = {}
-                    for update in data['result']:
+                    for update in data['result'][-10:]:  # Solo últimos 10 mensajes
                         if 'message' in update:
                             chat = update['message']['chat']
                             chat_id = chat['id']
@@ -169,7 +169,7 @@ class TelegramCloudStorage:
             files = {'document': (INDEX_FILENAME, index_bytes)}
             data = {'chat_id': self.config['chat_id'], 'disable_notification': True}
             
-            response = requests.post(f"{self.base_url}/sendDocument", files=files, data=data, timeout=60)
+            response = requests.post(f"{self.base_url}/sendDocument", files=files, data=data, timeout=30)
             if response.status_code != 200:
                 return False
 
@@ -453,8 +453,8 @@ def main():
     
     client = st.session_state.client
     
-    # Tabs principales
-    tab1, tab2, tab3 = st.tabs(["📤 Subir", "📁 Archivos", "📊 Estadísticas"])
+    # Solo dos tabs principales
+    tab1, tab2 = st.tabs(["📤 Subir", "📁 Archivos"])
     
     with tab1:
         st.header("📤 Subir Archivos")
@@ -469,22 +469,23 @@ def main():
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("📤 Subir Todos", type="primary"):
+                        success_count = 0
                         progress_bar = st.progress(0)
                         for i, uploaded_file in enumerate(uploaded_files):
-                            with st.spinner(f"Subiendo {uploaded_file.name}..."):
-                                file_bytes = uploaded_file.read()
-                                success, message = client.upload_file(file_bytes, uploaded_file.name)
-                                if success:
-                                    st.success(f"✅ {uploaded_file.name}")
-                                else:
-                                    st.error(f"❌ {uploaded_file.name}: {message}")
+                            file_bytes = uploaded_file.read()
+                            success, message = client.upload_file(file_bytes, uploaded_file.name)
+                            if success:
+                                success_count += 1
                             progress_bar.progress((i + 1) / len(uploaded_files))
-                        st.rerun()
+                        
+                        st.success(f"✅ {success_count}/{len(uploaded_files)} archivos subidos")
+                        if success_count > 0:
+                            st.rerun()
                 
                 with col2:
                     zip_name = st.text_input("Nombre del ZIP:", value="archivos.zip")
                     if st.button("📦 Subir como ZIP"):
-                        with st.spinner("Creando ZIP..."):
+                        with st.spinner("Creando y subiendo ZIP..."):
                             files_dict = {f.name: f.read() for f in uploaded_files}
                             zip_bytes = create_zip_from_files(files_dict)
                             success, message = client.upload_file(zip_bytes, zip_name)
@@ -497,7 +498,7 @@ def main():
             # Subir archivos individuales
             st.markdown("---")
             for uploaded_file in uploaded_files:
-                col1, col2, col3 = st.columns([2, 2, 1])
+                col1, col2, col3 = st.columns([3, 2, 1])
                 
                 with col1:
                     st.write(f"📄 {uploaded_file.name}")
@@ -516,10 +517,10 @@ def main():
                             success, message = client.upload_file(file_bytes, uploaded_file.name, custom_name)
                         
                         if success:
-                            st.success("✅ Subido")
+                            st.success("✅")
                             st.rerun()
                         else:
-                            st.error(message)
+                            st.error(f"❌ {message}")
 
     with tab2:
         col1, col2 = st.columns([3, 1])
@@ -534,6 +535,11 @@ def main():
         if not client.index:
             st.info("📭 No hay archivos subidos")
         else:
+            # Información básica
+            total_files = len(client.index)
+            total_size = sum(info['size'] for info in client.index.values())
+            st.info(f"📊 {total_files} archivos • {format_size(total_size)} total")
+            
             # Búsqueda y filtros
             col1, col2 = st.columns(2)
             with col1:
@@ -559,12 +565,13 @@ def main():
             reverse = "↓" in sort_by or "Z-A" in sort_by
             sorted_files = sorted(filtered.items(), key=sort_funcs[sort_by], reverse=reverse)
             
-            st.info(f"📋 Mostrando {len(sorted_files)} de {len(client.index)} archivos")
+            if len(filtered) != total_files:
+                st.info(f"📋 Mostrando {len(sorted_files)} de {total_files} archivos")
             
             # Mostrar archivos
             for name, info in sorted_files:
                 with st.container():
-                    col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
+                    col1, col2, col3, col4, col5 = st.columns([4, 1, 1, 1, 1])
                     
                     with col1:
                         st.write(f"📄 **{name}**")
@@ -580,22 +587,24 @@ def main():
                                         "💾 Guardar",
                                         data=content,
                                         file_name=name,
-                                        key=f"save_{name}"
+                                        key=f"save_{name}",
+                                        type="primary"
                                     )
                                 else:
                                     st.error(message)
                     
                     with col3:
                         if st.button("🔗", key=f"share_{name}", help="Compartir"):
-                            share_url, message = client.generate_share_link(name)
-                            if share_url:
-                                st.code(share_url, language=None)
-                                st.success("✅ Enlace copiado")
-                            else:
-                                st.error(message)
+                            with st.spinner("Generando enlace..."):
+                                share_url, message = client.generate_share_link(name)
+                                if share_url:
+                                    st.code(share_url, language=None)
+                                    st.success("✅ Enlace generado")
+                                else:
+                                    st.error(message)
                     
                     with col4:
-                        if st.button("📋", key=f"info_{name}", help="Información"):
+                        if st.button("ℹ️", key=f"info_{name}", help="Información"):
                             st.info(f"""
                             **📄 Archivo:** {name}
                             **📊 Tamaño:** {format_size(info['size'])}
@@ -607,67 +616,18 @@ def main():
                     with col5:
                         if st.button("🗑️", key=f"del_{name}", help="Eliminar"):
                             if st.session_state.get(f"confirm_del_{name}"):
-                                success, message = client.delete_file(name)
-                                if success:
-                                    st.success("✅ Eliminado")
-                                    st.rerun()
-                                else:
-                                    st.error(message)
+                                with st.spinner("Eliminando..."):
+                                    success, message = client.delete_file(name)
+                                    if success:
+                                        st.success("✅ Eliminado")
+                                        st.rerun()
+                                    else:
+                                        st.error(message)
                             else:
                                 st.session_state[f"confirm_del_{name}"] = True
                                 st.warning("⚠️ Click otra vez para confirmar")
                     
                     st.divider()
-
-    with tab3:
-        st.header("📊 Estadísticas")
-        
-        if not client.index:
-            st.info("📭 No hay datos para mostrar")
-        else:
-            total_files = len(client.index)
-            total_size = sum(info['size'] for info in client.index.values())
-            avg_size = total_size / total_files if total_files > 0 else 0
-            
-            # Métricas principales
-            col1, col2, col3 = st.columns(3)
-            with col1: 
-                st.metric("📁 Total Archivos", total_files)
-            with col2: 
-                st.metric("💾 Espacio Total", format_size(total_size))
-            with col3: 
-                st.metric("📊 Tamaño Promedio", format_size(avg_size))
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("🔝 Archivos más grandes")
-                largest = sorted(client.index.items(), key=lambda x: x[1]['size'], reverse=True)[:5]
-                for i, (name, info) in enumerate(largest, 1):
-                    st.write(f"{i}. **{name}** - {format_size(info['size'])}")
-            
-            with col2:
-                st.subheader("⏰ Archivos recientes")
-                recent = sorted(client.index.items(), key=lambda x: x[1]['upload_date'], reverse=True)[:5]
-                for name, info in recent:
-                    date = datetime.fromisoformat(info['upload_date'])
-                    st.write(f"📄 **{name}** - {date.strftime('%d/%m/%Y')}")
-            
-            # Estadísticas adicionales
-            st.subheader("📈 Análisis de archivos")
-            
-            # Distribución por tamaño
-            size_ranges = {
-                "Pequeños (<1MB)": sum(1 for info in client.index.values() if info['size'] < 1024*1024),
-                "Medianos (1-10MB)": sum(1 for info in client.index.values() if 1024*1024 <= info['size'] < 10*1024*1024),
-                "Grandes (10-100MB)": sum(1 for info in client.index.values() if 10*1024*1024 <= info['size'] < 100*1024*1024),
-                "Muy grandes (>100MB)": sum(1 for info in client.index.values() if info['size'] >= 100*1024*1024)
-            }
-            
-            for range_name, count in size_ranges.items():
-                if count > 0:
-                    percentage = (count / total_files) * 100
-                    st.write(f"• **{range_name}**: {count} archivos ({percentage:.1f}%)")
 
 if __name__ == "__main__":
     main()
