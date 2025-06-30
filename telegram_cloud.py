@@ -293,7 +293,7 @@ class TelegramCloudStorage:
             return False, f"Error: {str(e)}"
 
     def generate_share_link(self, remote_name):
-        """Genera enlace compartible para descarga"""
+        """Genera enlace  compartible para descarga"""
         if remote_name not in self.index:
             return None, "Archivo no encontrado"
         
