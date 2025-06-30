@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Telegram Cloud Storage - Versión Simplificada
-Sistema de almacenamiento en la nube usando Telegram con enlaces compartibles.
+Telegram Cloud Storage - Versión con Enlaces Cortos
+Sistema de almacenamiento en la nube usando Telegram con enlaces compartibles cortos.
 """
 
 import os
@@ -17,6 +17,7 @@ import io
 import logging
 import base64
 import urllib.parse
+import zlib
 
 # Configuración
 logging.basicConfig(level=logging.INFO)
@@ -292,58 +293,100 @@ class TelegramCloudStorage:
         except Exception as e:
             return False, f"Error: {str(e)}"
 
-def generate_share_link(self, remote_name, short=True):
-    """Genera enlace compartible para descarga (versión mejorada)"""
-    if remote_name not in self.index:
-        return None, "Archivo no encontrado"
-    
-    try:
-        if short:
-            # MÉTODO COMPRIMIDO - Reduce ~60-70% el tamaño
-            import zlib
-            
-            # Solo datos esenciales
-            minimal_data = {
-                'bt': self.bot_token[-12:],  # Últimos 12 chars del token
-                'fid': self.index[remote_name]['file_id'],
-                'fn': remote_name,
-                'sz': self.index[remote_name]['size'],
-                'dt': self.index[remote_name]['upload_date'][:10]  # Solo fecha
-            }
-            
-            # Comprimir y codificar
-            json_data = json.dumps(minimal_data, separators=(',', ':'))
-            compressed = zlib.compress(json_data.encode())
-            encoded = base64.urlsafe_b64encode(compressed).decode().rstrip('=')
-            
-            # URL corta
-            base_url = st.secrets.get("APP_URL", "http://localhost:8501")
-            share_url = f"{base_url}?c={encoded}"
-            
-        else:
-            # MÉTODO ORIGINAL - Más largo pero más robusto
-            share_data = {
-                'bot_token': self.bot_token,
-                'file_id': self.index[remote_name]['file_id'],
-                'filename': remote_name,
-                'size': self.index[remote_name]['size'],
-                'upload_date': self.index[remote_name]['upload_date']
-            }
-            
-            json_data = json.dumps(share_data)
-            encoded_data = base64.b64encode(json_data.encode()).decode()
-            
-            base_url = st.secrets.get("APP_URL", "http://localhost:8501")
-            share_url = f"{base_url}?share={urllib.parse.quote(encoded_data)}"
+    def generate_share_link(self, remote_name, short=True):
+        """Genera enlace compartible para descarga"""
+        if remote_name not in self.index:
+            return None, "Archivo no encontrado"
         
-        return share_url, "Enlace generado exitosamente"
-        
-    except Exception as e:
-        return None, f"Error generando enlace: {str(e)}"
+        try:
+            if short:
+                # MÉTODO COMPRIMIDO - Reduce ~60-70% el tamaño
+                minimal_data = {
+                    'bt': self.bot_token,  # Token completo por ahora
+                    'fid': self.index[remote_name]['file_id'],
+                    'fn': remote_name,
+                    'sz': self.index[remote_name]['size'],
+                    'dt': self.index[remote_name]['upload_date'][:10]  # Solo fecha
+                }
+                
+                # Comprimir y codificar
+                json_data = json.dumps(minimal_data, separators=(',', ':'))
+                compressed = zlib.compress(json_data.encode())
+                encoded = base64.urlsafe_b64encode(compressed).decode().rstrip('=')
+                
+                # URL corta
+                base_url = st.secrets.get("APP_URL", "https://telegram-cloud.streamlit.app")
+                share_url = f"{base_url}?c={encoded}"
+                
+            else:
+                # MÉTODO ORIGINAL
+                share_data = {
+                    'bot_token': self.bot_token,
+                    'file_id': self.index[remote_name]['file_id'],
+                    'filename': remote_name,
+                    'size': self.index[remote_name]['size'],
+                    'upload_date': self.index[remote_name]['upload_date']
+                }
+                
+                json_data = json.dumps(share_data)
+                encoded_data = base64.b64encode(json_data.encode()).decode()
+                
+                base_url = st.secrets.get("APP_URL", "https://telegram-cloud.streamlit.app")
+                share_url = f"{base_url}?share={urllib.parse.quote(encoded_data)}"
+            
+            return share_url, "Enlace generado exitosamente"
+            
+        except Exception as e:
+            return None, f"Error generando enlace: {str(e)}"
 
 def handle_shared_link():
-    """Maneja la descarga desde enlace compartido"""
-    if 'share' in st.query_params:
+    """Maneja la descarga desde enlace compartido (ambos formatos)"""
+    
+    # Enlace corto comprimido
+    if 'c' in st.query_params:
+        try:
+            encoded_data = st.query_params['c']
+            
+            # Agregar padding base64 si es necesario
+            padding = 4 - len(encoded_data) % 4
+            if padding != 4:
+                encoded_data += '=' * padding
+            
+            # Decodificar y descomprimir
+            compressed = base64.urlsafe_b64decode(encoded_data)
+            json_data = zlib.decompress(compressed).decode()
+            minimal_data = json.loads(json_data)
+            
+            st.title("📥 Descarga Compartida (Enlace Corto)")
+            st.markdown(f"**📄 Archivo:** {minimal_data['fn']}")
+            st.markdown(f"**📊 Tamaño:** {format_size(minimal_data['sz'])}")
+            st.markdown(f"**📅 Fecha:** {minimal_data['dt']}")
+            
+            if st.button("📥 Descargar Archivo"):
+                with st.spinner("Descargando..."):
+                    # Crear cliente temporal
+                    temp_client = TelegramCloudStorage(minimal_data['bt'])
+                    content, message = temp_client.download_file_by_id(minimal_data['fid'])
+                    
+                    if content:
+                        st.download_button(
+                            label="💾 Guardar Archivo",
+                            data=content,
+                            file_name=minimal_data['fn'],
+                            mime='application/octet-stream'
+                        )
+                        st.success("✅ Archivo listo para descargar")
+                    else:
+                        st.error(f"Error: {message}")
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"Error procesando enlace corto: {str(e)}")
+            return True
+    
+    # Enlace original largo
+    elif 'share' in st.query_params:
         try:
             encoded_data = st.query_params['share']
             decoded_data = base64.b64decode(urllib.parse.unquote(encoded_data)).decode()
@@ -595,10 +638,27 @@ def main():
                     
                     with col3:
                         if st.button("🔗 Compartir", key=f"share_{name}"):
-                            share_url, message = client.generate_share_link(name)
+                            # Opción de enlace corto por defecto
+                            link_type = st.radio(
+                                "Tipo:",
+                                ["Corto", "Completo"],
+                                key=f"type_{name}",
+                                horizontal=True
+                            )
+                            
+                            is_short = link_type == "Corto"
+                            share_url, message = client.generate_share_link(name, short=is_short)
+                            
                             if share_url:
                                 st.code(share_url, language=None)
                                 st.success("✅ Enlace generado")
+                                
+                                # Mostrar estadísticas de reducción
+                                if is_short:
+                                    original_url, _ = client.generate_share_link(name, short=False)
+                                    if original_url:
+                                        reduction = ((len(original_url) - len(share_url)) / len(original_url)) * 100
+                                        st.info(f"📏 {reduction:.0f}% más corto")
                             else:
                                 st.error(message)
                     
