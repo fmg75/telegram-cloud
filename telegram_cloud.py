@@ -292,13 +292,36 @@ class TelegramCloudStorage:
         except Exception as e:
             return False, f"Error: {str(e)}"
 
-    def generate_share_link(self, remote_name):
-        """Genera enlace  compartible para descarga"""
-        if remote_name not in self.index:
-            return None, "Archivo no encontrado"
-        
-        try:
-            # Crear datos del enlace
+def generate_share_link(self, remote_name, short=True):
+    """Genera enlace compartible para descarga (versión mejorada)"""
+    if remote_name not in self.index:
+        return None, "Archivo no encontrado"
+    
+    try:
+        if short:
+            # MÉTODO COMPRIMIDO - Reduce ~60-70% el tamaño
+            import zlib
+            
+            # Solo datos esenciales
+            minimal_data = {
+                'bt': self.bot_token[-12:],  # Últimos 12 chars del token
+                'fid': self.index[remote_name]['file_id'],
+                'fn': remote_name,
+                'sz': self.index[remote_name]['size'],
+                'dt': self.index[remote_name]['upload_date'][:10]  # Solo fecha
+            }
+            
+            # Comprimir y codificar
+            json_data = json.dumps(minimal_data, separators=(',', ':'))
+            compressed = zlib.compress(json_data.encode())
+            encoded = base64.urlsafe_b64encode(compressed).decode().rstrip('=')
+            
+            # URL corta
+            base_url = st.secrets.get("APP_URL", "http://localhost:8501")
+            share_url = f"{base_url}?c={encoded}"
+            
+        else:
+            # MÉTODO ORIGINAL - Más largo pero más robusto
             share_data = {
                 'bot_token': self.bot_token,
                 'file_id': self.index[remote_name]['file_id'],
@@ -307,18 +330,16 @@ class TelegramCloudStorage:
                 'upload_date': self.index[remote_name]['upload_date']
             }
             
-            # Codificar en base64
             json_data = json.dumps(share_data)
             encoded_data = base64.b64encode(json_data.encode()).decode()
             
-            # Crear URL
-            base_url = st.secrets.get("APP_URL", "http://localhost:8501")  # Configurable
+            base_url = st.secrets.get("APP_URL", "http://localhost:8501")
             share_url = f"{base_url}?share={urllib.parse.quote(encoded_data)}"
-            
-            return share_url, "Enlace generado exitosamente"
-            
-        except Exception as e:
-            return None, f"Error generando enlace: {str(e)}"
+        
+        return share_url, "Enlace generado exitosamente"
+        
+    except Exception as e:
+        return None, f"Error generando enlace: {str(e)}"
 
 def handle_shared_link():
     """Maneja la descarga desde enlace compartido"""
