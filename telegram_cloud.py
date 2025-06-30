@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Telegram Cloud Storage - Versión con Enlaces Cortos
-Sistema de almacenamiento en la nube usando Telegram con enlaces compartibles cortos.
+Telegram Cloud Storage - Versión Optimizada
+Sistema de almacenamiento en la nube usando Telegram con enlaces cortos.
 """
 
 import os
@@ -16,7 +16,6 @@ import zipfile
 import io
 import logging
 import base64
-import urllib.parse
 import zlib
 
 # Configuración
@@ -42,7 +41,7 @@ class TelegramCloudStorage:
         self.user_dir.mkdir(parents=True, exist_ok=True)
         self.config_file = self.user_dir / "config.json"
         
-        self.config = self.load_config()
+        self.config = self._load_config()
         self.index = {}
         self.index_message_id = None
         
@@ -50,7 +49,7 @@ class TelegramCloudStorage:
         if self.config.get('chat_id'):
             self.sync_index()
 
-    def load_config(self):
+    def _load_config(self):
         """Carga configuración del usuario"""
         try:
             if self.config_file.exists():
@@ -166,7 +165,7 @@ class TelegramCloudStorage:
         
         try:
             # Subir nuevo índice
-            index_bytes = json.dumps(self.index, indent=2).encode('utf-8')
+            index_bytes = json.dumps(self.index, indent=2, separators=(',', ':')).encode('utf-8')
             files = {'document': (INDEX_FILENAME, index_bytes)}
             data = {'chat_id': self.config['chat_id'], 'disable_notification': True}
             
@@ -192,7 +191,7 @@ class TelegramCloudStorage:
                 self.index_message_id = new_message_id
                 return True
             else:
-                st.error("⚠️ Error: El bot necesita ser administrador con permiso para fijar mensajes")
+                st.error("⚠️ El bot necesita permisos de administrador para fijar mensajes")
                 return False
 
         except Exception as e:
@@ -201,7 +200,7 @@ class TelegramCloudStorage:
 
     def upload_file(self, file_bytes, filename, remote_name=None):
         """Sube archivo a Telegram"""
-        if len(file_bytes) > 2 * 1024 * 1024 * 1024:  # 2GB
+        if len(file_bytes) > 2 * 1024 * 1024 * 1024:  # 2GB límite de Telegram
             return False, "Archivo demasiado grande (máximo 2GB)"
         
         if not self.config.get('chat_id'):
@@ -212,7 +211,7 @@ class TelegramCloudStorage:
         
         # Verificar si ya existe
         if remote_name in self.index and self.index[remote_name]['hash'] == file_hash:
-            return True, f"Archivo '{remote_name}' ya existe (contenido idéntico)"
+            return True, f"Archivo '{remote_name}' ya existe"
         
         try:
             files = {'document': (filename, file_bytes)}
@@ -240,7 +239,7 @@ class TelegramCloudStorage:
                         return True, f"Archivo '{remote_name}' subido exitosamente"
                     else:
                         del self.index[remote_name]
-                        return False, "Error: No se pudo actualizar el índice"
+                        return False, "Error actualizando índice"
                 else:
                     return False, f"Error API: {result.get('description', 'Error desconocido')}"
             else:
@@ -289,50 +288,33 @@ class TelegramCloudStorage:
             if self.save_index():
                 return True, f"Archivo '{remote_name}' eliminado"
             else:
-                return False, "Error: No se pudo actualizar el índice"
+                return False, "Error actualizando índice"
         except Exception as e:
             return False, f"Error: {str(e)}"
 
-    def generate_share_link(self, remote_name, short=True):
-        """Genera enlace compartible para descarga"""
+    def generate_share_link(self, remote_name):
+        """Genera enlace corto compartible"""
         if remote_name not in self.index:
             return None, "Archivo no encontrado"
         
         try:
-            if short:
-                # MÉTODO COMPRIMIDO - Reduce ~60-70% el tamaño
-                minimal_data = {
-                    'bt': self.bot_token,  # Token completo por ahora
-                    'fid': self.index[remote_name]['file_id'],
-                    'fn': remote_name,
-                    'sz': self.index[remote_name]['size'],
-                    'dt': self.index[remote_name]['upload_date'][:10]  # Solo fecha
-                }
-                
-                # Comprimir y codificar
-                json_data = json.dumps(minimal_data, separators=(',', ':'))
-                compressed = zlib.compress(json_data.encode())
-                encoded = base64.urlsafe_b64encode(compressed).decode().rstrip('=')
-                
-                # URL corta
-                base_url = st.secrets.get("APP_URL", "https://telegram-cloud.streamlit.app")
-                share_url = f"{base_url}?c={encoded}"
-                
-            else:
-                # MÉTODO ORIGINAL
-                share_data = {
-                    'bot_token': self.bot_token,
-                    'file_id': self.index[remote_name]['file_id'],
-                    'filename': remote_name,
-                    'size': self.index[remote_name]['size'],
-                    'upload_date': self.index[remote_name]['upload_date']
-                }
-                
-                json_data = json.dumps(share_data)
-                encoded_data = base64.b64encode(json_data.encode()).decode()
-                
-                base_url = st.secrets.get("APP_URL", "https://telegram-cloud.streamlit.app")
-                share_url = f"{base_url}?share={urllib.parse.quote(encoded_data)}"
+            # Datos mínimos para enlace corto
+            minimal_data = {
+                'bt': self.bot_token,
+                'fid': self.index[remote_name]['file_id'],
+                'fn': remote_name,
+                'sz': self.index[remote_name]['size'],
+                'dt': self.index[remote_name]['upload_date'][:10]  # Solo fecha
+            }
+            
+            # Comprimir y codificar
+            json_data = json.dumps(minimal_data, separators=(',', ':'))
+            compressed = zlib.compress(json_data.encode())
+            encoded = base64.urlsafe_b64encode(compressed).decode().rstrip('=')
+            
+            # URL corta
+            base_url = st.secrets.get("APP_URL", "https://telegram-cloud.streamlit.app")
+            share_url = f"{base_url}?c={encoded}"
             
             return share_url, "Enlace generado exitosamente"
             
@@ -340,89 +322,50 @@ class TelegramCloudStorage:
             return None, f"Error generando enlace: {str(e)}"
 
 def handle_shared_link():
-    """Maneja la descarga desde enlace compartido (ambos formatos)"""
+    """Maneja la descarga desde enlace compartido"""
+    if 'c' not in st.query_params:
+        return False
     
-    # Enlace corto comprimido
-    if 'c' in st.query_params:
-        try:
-            encoded_data = st.query_params['c']
-            
-            # Agregar padding base64 si es necesario
-            padding = 4 - len(encoded_data) % 4
-            if padding != 4:
-                encoded_data += '=' * padding
-            
-            # Decodificar y descomprimir
-            compressed = base64.urlsafe_b64decode(encoded_data)
-            json_data = zlib.decompress(compressed).decode()
-            minimal_data = json.loads(json_data)
-            
-            st.title("📥 Descarga Compartida (Enlace Corto)")
-            st.markdown(f"**📄 Archivo:** {minimal_data['fn']}")
-            st.markdown(f"**📊 Tamaño:** {format_size(minimal_data['sz'])}")
-            st.markdown(f"**📅 Fecha:** {minimal_data['dt']}")
-            
-            if st.button("📥 Descargar Archivo"):
-                with st.spinner("Descargando..."):
-                    # Crear cliente temporal
-                    temp_client = TelegramCloudStorage(minimal_data['bt'])
-                    content, message = temp_client.download_file_by_id(minimal_data['fid'])
-                    
-                    if content:
-                        st.download_button(
-                            label="💾 Guardar Archivo",
-                            data=content,
-                            file_name=minimal_data['fn'],
-                            mime='application/octet-stream'
-                        )
-                        st.success("✅ Archivo listo para descargar")
-                    else:
-                        st.error(f"Error: {message}")
-            
-            return True
-            
-        except Exception as e:
-            st.error(f"Error procesando enlace corto: {str(e)}")
-            return True
-    
-    # Enlace original largo
-    elif 'share' in st.query_params:
-        try:
-            encoded_data = st.query_params['share']
-            decoded_data = base64.b64decode(urllib.parse.unquote(encoded_data)).decode()
-            share_data = json.loads(decoded_data)
-            
-            st.title("📥 Descarga Compartida")
-            st.markdown(f"**📄 Archivo:** {share_data['filename']}")
-            st.markdown(f"**📊 Tamaño:** {format_size(share_data['size'])}")
-            
-            upload_date = datetime.fromisoformat(share_data['upload_date'])
-            st.markdown(f"**📅 Subido:** {upload_date.strftime('%d/%m/%Y %H:%M')}")
-            
-            if st.button("📥 Descargar Archivo"):
-                with st.spinner("Descargando..."):
-                    # Crear cliente temporal
-                    temp_client = TelegramCloudStorage(share_data['bot_token'])
-                    content, message = temp_client.download_file_by_id(share_data['file_id'])
-                    
-                    if content:
-                        st.download_button(
-                            label="💾 Guardar Archivo",
-                            data=content,
-                            file_name=share_data['filename'],
-                            mime='application/octet-stream'
-                        )
-                        st.success("✅ Archivo listo para descargar")
-                    else:
-                        st.error(f"Error: {message}")
-            
-            return True
-            
-        except Exception as e:
-            st.error(f"Error procesando enlace: {str(e)}")
-            return True
-    
-    return False
+    try:
+        encoded_data = st.query_params['c']
+        
+        # Agregar padding base64 si es necesario
+        padding = 4 - len(encoded_data) % 4
+        if padding != 4:
+            encoded_data += '=' * padding
+        
+        # Decodificar y descomprimir
+        compressed = base64.urlsafe_b64decode(encoded_data)
+        json_data = zlib.decompress(compressed).decode()
+        minimal_data = json.loads(json_data)
+        
+        st.title("📥 Descarga Compartida")
+        st.markdown(f"**📄 Archivo:** {minimal_data['fn']}")
+        st.markdown(f"**📊 Tamaño:** {format_size(minimal_data['sz'])}")
+        st.markdown(f"**📅 Fecha:** {minimal_data['dt']}")
+        
+        if st.button("📥 Descargar Archivo", type="primary"):
+            with st.spinner("Descargando..."):
+                # Crear cliente temporal
+                temp_client = TelegramCloudStorage(minimal_data['bt'])
+                content, message = temp_client.download_file_by_id(minimal_data['fid'])
+                
+                if content:
+                    st.download_button(
+                        label="💾 Guardar Archivo",
+                        data=content,
+                        file_name=minimal_data['fn'],
+                        mime='application/octet-stream'
+                    )
+                    st.success("✅ Archivo listo para descargar")
+                else:
+                    st.error(f"Error: {message}")
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"Error procesando enlace: {str(e)}")
+        return True
 
 def format_size(bytes_size):
     """Formatea tamaño de archivo"""
@@ -434,17 +377,14 @@ def format_size(bytes_size):
         bytes_size /= 1024
     return f"{bytes_size:.1f} TB"
 
-def zip_folder(folder_path):
-    """Comprime carpeta en ZIP"""
+def create_zip_from_files(files_dict):
+    """Crea ZIP desde diccionario de archivos"""
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for root, dirs, files in os.walk(folder_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, folder_path)
-                zipf.write(file_path, arcname)
+        for filename, file_bytes in files_dict.items():
+            zipf.writestr(filename, file_bytes)
     zip_buffer.seek(0)
-    return zip_buffer
+    return zip_buffer.getvalue()
 
 def main():
     # Verificar si es un enlace compartido
@@ -454,13 +394,13 @@ def main():
     st.title("☁️ Telegram Cloud Storage")
     st.markdown("*Sistema de almacenamiento en la nube con enlaces compartibles*")
     
-    # Instrucciones simplificadas
+    # Instrucciones
     with st.expander("📋 Instrucciones"):
         st.markdown("""
         1. **Crear Bot**: Busca @BotFather en Telegram → /newbot → Copia el token
-        2. **Configurar Bot**: Hazlo administrador con permiso para "Fijar Mensajes"
-        3. **Usar App**: Pega el token → Envía "Hola" al bot → Selecciona el chat
-        4. **¡Listo!** Ya puedes subir archivos y generar enlaces compartibles
+        2. **Configurar**: Hazlo administrador con permiso para "Fijar Mensajes"
+        3. **Conectar**: Pega el token → Envía mensaje al bot → Selecciona chat
+        4. **¡Usar!** Sube archivos y genera enlaces compartibles
         """)
     
     # Inicializar cliente
@@ -494,7 +434,7 @@ def main():
                                     st.success("✅ Configurado")
                                     st.rerun()
                         else:
-                            st.error("❌ Envía 'Hola' a tu bot primero")
+                            st.error("❌ Envía un mensaje a tu bot primero")
                 else:
                     st.success("✅ Configurado")
                     if st.button("🔄 Reconfigurar"):
@@ -504,7 +444,7 @@ def main():
             else:
                 st.error("❌ Token inválido")
         else:
-            st.info("👆 Ingresa tu token")
+            st.info("👆 Ingresa tu token de bot")
     
     # Verificar configuración
     if not st.session_state.get('client') or not st.session_state.client.config.get('chat_id'):
@@ -514,66 +454,72 @@ def main():
     client = st.session_state.client
     
     # Tabs principales
-    tab1, tab2, tab3 = st.tabs(["📤 Subir", "📁 Archivos", "📊 Stats"])
+    tab1, tab2, tab3 = st.tabs(["📤 Subir", "📁 Archivos", "📊 Estadísticas"])
     
     with tab1:
         st.header("📤 Subir Archivos")
         
-        # Subir archivos individuales
         uploaded_files = st.file_uploader("Selecciona archivos:", accept_multiple_files=True)
         
         if uploaded_files:
+            # Opción de subir múltiples archivos
+            if len(uploaded_files) > 1:
+                st.info(f"📁 {len(uploaded_files)} archivos seleccionados")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("📤 Subir Todos", type="primary"):
+                        progress_bar = st.progress(0)
+                        for i, uploaded_file in enumerate(uploaded_files):
+                            with st.spinner(f"Subiendo {uploaded_file.name}..."):
+                                file_bytes = uploaded_file.read()
+                                success, message = client.upload_file(file_bytes, uploaded_file.name)
+                                if success:
+                                    st.success(f"✅ {uploaded_file.name}")
+                                else:
+                                    st.error(f"❌ {uploaded_file.name}: {message}")
+                            progress_bar.progress((i + 1) / len(uploaded_files))
+                        st.rerun()
+                
+                with col2:
+                    zip_name = st.text_input("Nombre del ZIP:", value="archivos.zip")
+                    if st.button("📦 Subir como ZIP"):
+                        with st.spinner("Creando ZIP..."):
+                            files_dict = {f.name: f.read() for f in uploaded_files}
+                            zip_bytes = create_zip_from_files(files_dict)
+                            success, message = client.upload_file(zip_bytes, zip_name)
+                            if success:
+                                st.success(message)
+                                st.rerun()
+                            else:
+                                st.error(message)
+            
+            # Subir archivos individuales
+            st.markdown("---")
             for uploaded_file in uploaded_files:
                 col1, col2, col3 = st.columns([2, 2, 1])
                 
                 with col1:
-                    st.write(f"📄 {uploaded_file.name} ({format_size(uploaded_file.size)})")
+                    st.write(f"📄 {uploaded_file.name}")
+                    st.caption(f"📊 {format_size(uploaded_file.size)}")
                 
                 with col2:
-                    custom_name = st.text_input("Nombre:", value=uploaded_file.name, 
+                    custom_name = st.text_input("Nombre personalizado:", 
+                                              value=uploaded_file.name, 
                                               key=f"name_{uploaded_file.name}")
                 
                 with col3:
+                    st.write("")  # Espaciador
                     if st.button("📤", key=f"upload_{uploaded_file.name}"):
                         with st.spinner("Subiendo..."):
                             file_bytes = uploaded_file.read()
                             success, message = client.upload_file(file_bytes, uploaded_file.name, custom_name)
                         
                         if success:
-                            st.success(message)
+                            st.success("✅ Subido")
                             st.rerun()
                         else:
                             st.error(message)
-        
-        # Subir carpeta como ZIP
-        st.markdown("---")
-        st.subheader("📂 Subir Carpeta")
-        
-        folder_path = st.text_input("Ruta de carpeta:", placeholder="C:/ruta/a/carpeta")
-        
-        if folder_path and os.path.isdir(folder_path):
-            folder_name = os.path.basename(folder_path)
-            zip_name = f"{folder_name}.zip"
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                custom_zip_name = st.text_input("Nombre ZIP:", value=zip_name)
-            with col2:
-                st.write("")  # Espaciador
-                if st.button("📤 Subir"):
-                    with st.spinner("Comprimiendo..."):
-                        try:
-                            zip_buffer = zip_folder(folder_path)
-                            zip_bytes = zip_buffer.getvalue()
-                            success, message = client.upload_file(zip_bytes, zip_name, custom_zip_name)
-                            
-                            if success:
-                                st.success(message)
-                                st.rerun()
-                            else:
-                                st.error(message)
-                        except Exception as e:
-                            st.error(f"Error: {str(e)}")
 
     with tab2:
         col1, col2 = st.columns([3, 1])
@@ -581,19 +527,20 @@ def main():
             st.header("📁 Mis Archivos")
         with col2:
             if st.button("🔄 Sincronizar"):
-                client.sync_index()
+                with st.spinner("Sincronizando..."):
+                    client.sync_index()
                 st.rerun()
         
         if not client.index:
-            st.info("📭 No hay archivos")
+            st.info("📭 No hay archivos subidos")
         else:
-            # Búsqueda y ordenamiento
+            # Búsqueda y filtros
             col1, col2 = st.columns(2)
             with col1:
-                search = st.text_input("🔍 Buscar:")
+                search = st.text_input("🔍 Buscar archivos:")
             with col2:
-                sort_by = st.selectbox("📊 Ordenar:", 
-                                     ["Fecha ↓", "Fecha ↑", "Tamaño ↓", "Tamaño ↑", "Nombre A-Z"])
+                sort_options = ["Fecha ↓", "Fecha ↑", "Tamaño ↓", "Tamaño ↑", "Nombre A-Z", "Nombre Z-A"]
+                sort_by = st.selectbox("📊 Ordenar por:", sort_options)
             
             # Filtrar archivos
             filtered = {name: info for name, info in client.index.items() 
@@ -605,25 +552,27 @@ def main():
                 "Fecha ↑": lambda x: x[1]['upload_date'],
                 "Tamaño ↓": lambda x: x[1]['size'],
                 "Tamaño ↑": lambda x: x[1]['size'],
-                "Nombre A-Z": lambda x: x[0]
+                "Nombre A-Z": lambda x: x[0].lower(),
+                "Nombre Z-A": lambda x: x[0].lower()
             }
             
-            reverse = "↓" in sort_by
+            reverse = "↓" in sort_by or "Z-A" in sort_by
             sorted_files = sorted(filtered.items(), key=sort_funcs[sort_by], reverse=reverse)
             
-            st.info(f"📋 {len(sorted_files)} de {len(client.index)} archivos")
+            st.info(f"📋 Mostrando {len(sorted_files)} de {len(client.index)} archivos")
             
             # Mostrar archivos
             for name, info in sorted_files:
-                with st.expander(f"📄 {name} ({format_size(info['size'])})"):
-                    col1, col2, col3, col4 = st.columns(4)
+                with st.container():
+                    col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
                     
                     with col1:
+                        st.write(f"📄 **{name}**")
                         upload_date = datetime.fromisoformat(info['upload_date'])
-                        st.write(f"📅 {upload_date.strftime('%d/%m/%Y')}")
+                        st.caption(f"📅 {upload_date.strftime('%d/%m/%Y %H:%M')} • 📊 {format_size(info['size'])}")
                     
                     with col2:
-                        if st.button("📥 Descargar", key=f"dl_{name}"):
+                        if st.button("📥", key=f"dl_{name}", help="Descargar"):
                             with st.spinner("Descargando..."):
                                 content, message = client.download_file(name)
                                 if content:
@@ -637,70 +586,88 @@ def main():
                                     st.error(message)
                     
                     with col3:
-                        if st.button("🔗 Compartir", key=f"share_{name}"):
-                            # Opción de enlace corto por defecto
-                            link_type = st.radio(
-                                "Tipo:",
-                                ["Corto", "Completo"],
-                                key=f"type_{name}",
-                                horizontal=True
-                            )
-                            
-                            is_short = link_type == "Corto"
-                            share_url, message = client.generate_share_link(name, short=is_short)
-                            
+                        if st.button("🔗", key=f"share_{name}", help="Compartir"):
+                            share_url, message = client.generate_share_link(name)
                             if share_url:
                                 st.code(share_url, language=None)
-                                st.success("✅ Enlace generado")
-                                
-                                # Mostrar estadísticas de reducción
-                                if is_short:
-                                    original_url, _ = client.generate_share_link(name, short=False)
-                                    if original_url:
-                                        reduction = ((len(original_url) - len(share_url)) / len(original_url)) * 100
-                                        st.info(f"📏 {reduction:.0f}% más corto")
+                                st.success("✅ Enlace copiado")
                             else:
                                 st.error(message)
                     
                     with col4:
-                        if st.button("🗑️ Eliminar", key=f"del_{name}"):
-                            success, message = client.delete_file(name)
-                            if success:
-                                st.success(message)
-                                st.rerun()
+                        if st.button("📋", key=f"info_{name}", help="Información"):
+                            st.info(f"""
+                            **📄 Archivo:** {name}
+                            **📊 Tamaño:** {format_size(info['size'])}
+                            **📅 Subido:** {upload_date.strftime('%d/%m/%Y %H:%M:%S')}
+                            **🆔 ID:** {info['file_id'][:20]}...
+                            **#️⃣ Hash:** {info['hash'][:8]}...
+                            """)
+                    
+                    with col5:
+                        if st.button("🗑️", key=f"del_{name}", help="Eliminar"):
+                            if st.session_state.get(f"confirm_del_{name}"):
+                                success, message = client.delete_file(name)
+                                if success:
+                                    st.success("✅ Eliminado")
+                                    st.rerun()
+                                else:
+                                    st.error(message)
                             else:
-                                st.error(message)
+                                st.session_state[f"confirm_del_{name}"] = True
+                                st.warning("⚠️ Click otra vez para confirmar")
+                    
+                    st.divider()
 
     with tab3:
         st.header("📊 Estadísticas")
         
         if not client.index:
-            st.info("📭 No hay datos")
+            st.info("📭 No hay datos para mostrar")
         else:
             total_files = len(client.index)
             total_size = sum(info['size'] for info in client.index.values())
             avg_size = total_size / total_files if total_files > 0 else 0
             
+            # Métricas principales
             col1, col2, col3 = st.columns(3)
             with col1: 
-                st.metric("📁 Archivos", total_files)
+                st.metric("📁 Total Archivos", total_files)
             with col2: 
-                st.metric("💾 Espacio", format_size(total_size))
+                st.metric("💾 Espacio Total", format_size(total_size))
             with col3: 
-                st.metric("📊 Promedio", format_size(avg_size))
+                st.metric("📊 Tamaño Promedio", format_size(avg_size))
             
-            # Top 5 más grandes
-            st.subheader("🔝 Archivos más grandes")
-            largest = sorted(client.index.items(), key=lambda x: x[1]['size'], reverse=True)[:5]
-            for i, (name, info) in enumerate(largest, 1):
-                st.write(f"{i}. **{name}** - {format_size(info['size'])}")
+            col1, col2 = st.columns(2)
             
-            # 5 más recientes
-            st.subheader("⏰ Archivos recientes")
-            recent = sorted(client.index.items(), key=lambda x: x[1]['upload_date'], reverse=True)[:5]
-            for name, info in recent:
-                date = datetime.fromisoformat(info['upload_date'])
-                st.write(f"📄 **{name}** - {date.strftime('%d/%m/%Y %H:%M')}")
+            with col1:
+                st.subheader("🔝 Archivos más grandes")
+                largest = sorted(client.index.items(), key=lambda x: x[1]['size'], reverse=True)[:5]
+                for i, (name, info) in enumerate(largest, 1):
+                    st.write(f"{i}. **{name}** - {format_size(info['size'])}")
+            
+            with col2:
+                st.subheader("⏰ Archivos recientes")
+                recent = sorted(client.index.items(), key=lambda x: x[1]['upload_date'], reverse=True)[:5]
+                for name, info in recent:
+                    date = datetime.fromisoformat(info['upload_date'])
+                    st.write(f"📄 **{name}** - {date.strftime('%d/%m/%Y')}")
+            
+            # Estadísticas adicionales
+            st.subheader("📈 Análisis de archivos")
+            
+            # Distribución por tamaño
+            size_ranges = {
+                "Pequeños (<1MB)": sum(1 for info in client.index.values() if info['size'] < 1024*1024),
+                "Medianos (1-10MB)": sum(1 for info in client.index.values() if 1024*1024 <= info['size'] < 10*1024*1024),
+                "Grandes (10-100MB)": sum(1 for info in client.index.values() if 10*1024*1024 <= info['size'] < 100*1024*1024),
+                "Muy grandes (>100MB)": sum(1 for info in client.index.values() if info['size'] >= 100*1024*1024)
+            }
+            
+            for range_name, count in size_ranges.items():
+                if count > 0:
+                    percentage = (count / total_files) * 100
+                    st.write(f"• **{range_name}**: {count} archivos ({percentage:.1f}%)")
 
 if __name__ == "__main__":
     main()
