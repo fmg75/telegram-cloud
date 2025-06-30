@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Telegram Cloud Storage - Multiusuario (Versión Sincronizada)
-Sistema de almacenamiento en la nube usando Telegram con sincronización de metadatos.
+Telegram Cloud Storage - Versión Simplificada
+Sistema de almacenamiento en la nube usando Telegram con enlaces compartibles.
 """
 
 import os
@@ -15,6 +15,8 @@ import tempfile
 import zipfile
 import io
 import logging
+import base64
+import urllib.parse
 
 # Configuración
 logging.basicConfig(level=logging.INFO)
@@ -26,44 +28,39 @@ st.set_page_config(
     layout="wide"
 )
 
-# NUEVO: Constante para el nombre del archivo de índice
-INDEX_FILENAME = "_telegram_cloud_storage_index.v1.json"
+INDEX_FILENAME = "_telegram_cloud_index.json"
 
 class TelegramCloudStorage:
     def __init__(self, bot_token):
         self.bot_token = bot_token
         self.base_url = f"https://api.telegram.org/bot{bot_token}"
         self.user_hash = hashlib.md5(bot_token.encode()).hexdigest()[:16]
-
-        # MODIFICADO: El directorio local ahora solo sirve para configuraciones temporales
+        
+        # Directorio temporal para configuración
         self.user_dir = Path(tempfile.gettempdir()) / "telegram_cloud" / self.user_hash
         self.user_dir.mkdir(parents=True, exist_ok=True)
         self.config_file = self.user_dir / "config.json"
-
-        self.config = self.load_config()
         
-        # MODIFICADO: El índice ya no se carga desde un archivo local al inicio
+        self.config = self.load_config()
         self.index = {}
-        self.index_message_id = None # NUEVO: Para saber qué mensaje de índice desanclar
-
-        # Si ya hay config, cargamos el índice desde Telegram
+        self.index_message_id = None
+        
+        # Cargar índice si ya hay configuración
         if self.config.get('chat_id'):
-            self.load_index_from_telegram()
+            self.sync_index()
 
     def load_config(self):
-        """Carga configuración del usuario (solo chat_id)"""
+        """Carga configuración del usuario"""
         try:
             if self.config_file.exists():
                 with open(self.config_file, 'r') as f:
-                    config = json.load(f)
-                logger.info(f"Configuración cargada para usuario {self.user_hash}")
-                return config
+                    return json.load(f)
         except Exception as e:
             logger.error(f"Error cargando configuración: {e}")
         return {}
 
     def save_config(self, chat_id):
-        """Guarda configuración del usuario (solo chat_id)"""
+        """Guarda configuración del usuario"""
         try:
             config = {
                 'bot_token': self.bot_token,
@@ -73,111 +70,9 @@ class TelegramCloudStorage:
             with open(self.config_file, 'w') as f:
                 json.dump(config, f, indent=2)
             self.config = config
-            logger.info(f"Configuración guardada para usuario {self.user_hash}")
             return True
         except Exception as e:
             logger.error(f"Error guardando configuración: {e}")
-            return False
-
-    # MODIFICADO: La función save_index ahora orquesta el guardado en Telegram
-    def save_index(self):
-        """Orquesta el guardado del índice en Telegram."""
-        return self.save_index_to_telegram()
-
-    # NUEVO: Lógica para cargar el índice desde un mensaje fijado en Telegram
-    def load_index_from_telegram(self):
-        """Carga el índice de archivos desde el mensaje fijado en Telegram."""
-        if not self.config.get('chat_id'):
-            return
-
-        st.info("🔄 Sincronizando índice de archivos...")
-        logger.info("Intentando cargar el índice desde Telegram...")
-        try:
-            # 1. Obtener información del chat para encontrar el mensaje fijado
-            response = requests.get(f"{self.base_url}/getChat", params={'chat_id': self.config['chat_id']})
-            if response.status_code != 200:
-                logger.error(f"Error obteniendo info del chat: {response.text}")
-                st.error("Error al sincronizar: No se pudo obtener información del chat.")
-                return
-
-            chat_info = response.json()
-            if not chat_info.get('ok') or 'result' not in chat_info or 'pinned_message' not in chat_info['result']:
-                logger.warning("No se encontró un mensaje fijado. Se asume un índice vacío.")
-                st.warning("No se encontró un índice remoto. Si es la primera vez, es normal.")
-                self.index = {}
-                return
-
-            pinned_message = chat_info['result']['pinned_message']
-            self.index_message_id = pinned_message.get('message_id')
-
-            # 2. Verificar que el mensaje fijado sea nuestro archivo de índice
-            if 'document' in pinned_message and pinned_message['document']['file_name'] == INDEX_FILENAME:
-                file_id = pinned_message['document']['file_id']
-                
-                # 3. Descargar el archivo de índice
-                content, msg = self.download_file_by_id(file_id)
-                if content:
-                    self.index = json.loads(content)
-                    logger.info(f"Índice cargado y sincronizado desde Telegram. {len(self.index)} archivos.")
-                    st.success("✅ Índice de archivos sincronizado.")
-                else:
-                    logger.error(f"No se pudo descargar el archivo de índice: {msg}")
-                    st.error("Error al sincronizar: No se pudo descargar el índice.")
-                    self.index = {}
-            else:
-                logger.warning("El mensaje fijado no es un archivo de índice válido.")
-                self.index = {}
-
-        except Exception as e:
-            logger.error(f"Excepción al cargar el índice desde Telegram: {e}")
-            st.error(f"Error fatal durante la sincronización: {e}")
-            self.index = {}
-
-    # NUEVO: Lógica para guardar el índice como un archivo en Telegram y fijarlo
-    def save_index_to_telegram(self):
-        """Sube el índice como un archivo JSON a Telegram, lo fija y desancla el anterior."""
-        if not self.config.get('chat_id'):
-            return False
-        
-        logger.info("Guardando índice en Telegram...")
-        try:
-            # 1. Convertir el diccionario de índice a bytes
-            index_bytes = json.dumps(self.index, indent=2).encode('utf-8')
-
-            # 2. Subir el archivo de índice
-            files = {'document': (INDEX_FILENAME, index_bytes)}
-            data = {'chat_id': self.config['chat_id'], 'disable_notification': True}
-            
-            response = requests.post(f"{self.base_url}/sendDocument", files=files, data=data, timeout=60)
-            if response.status_code != 200:
-                logger.error(f"Error subiendo índice: {response.text}")
-                return False
-
-            result = response.json()
-            if not result['ok']:
-                logger.error(f"Error API subiendo índice: {result.get('description')}")
-                return False
-
-            new_message_id = result['result']['message_id']
-
-            # 3. Desanclar el mensaje de índice antiguo si existe
-            if self.index_message_id:
-                requests.post(f"{self.base_url}/unpinChatMessage", data={'chat_id': self.config['chat_id'], 'message_id': self.index_message_id})
-                logger.info(f"Mensaje de índice antiguo ({self.index_message_id}) desanclado.")
-
-            # 4. Fijar el nuevo mensaje de índice
-            pin_response = requests.post(f"{self.base_url}/pinChatMessage", data={'chat_id': self.config['chat_id'], 'message_id': new_message_id, 'disable_notification': True})
-            if not pin_response.json().get('ok'):
-                logger.error(f"¡Error Crítico! No se pudo fijar el nuevo índice: {pin_response.text}. El bot necesita ser admin con permiso para fijar mensajes.")
-                st.error("⚠️ ¡Error! No se pudo fijar el nuevo índice. Asegúrate de que el bot sea administrador con permiso para 'Fijar Mensajes'.")
-                return False
-
-            self.index_message_id = new_message_id
-            logger.info(f"Índice guardado y fijado en Telegram (Mensaje ID: {new_message_id}).")
-            return True
-
-        except Exception as e:
-            logger.error(f"Excepción al guardar el índice en Telegram: {e}")
             return False
 
     def test_bot_token(self):
@@ -191,9 +86,8 @@ class TelegramCloudStorage:
         except Exception as e:
             logger.error(f"Error verificando token: {e}")
             return False, {}
-    
+
     def get_chat_ids(self):
-        # ... (sin cambios en esta función)
         """Obtiene Chat IDs disponibles"""
         try:
             response = requests.get(f"{self.base_url}/getUpdates", timeout=10)
@@ -226,13 +120,86 @@ class TelegramCloudStorage:
             logger.error(f"Error obteniendo chats: {e}")
             return []
 
-    def file_exists(self, remote_name):
-        """Verifica si existe un archivo con el mismo nombre"""
-        return remote_name in self.index
-    
+    def sync_index(self):
+        """Sincroniza el índice desde Telegram"""
+        if not self.config.get('chat_id'):
+            return False
+            
+        try:
+            # Obtener mensaje fijado
+            response = requests.get(f"{self.base_url}/getChat", params={'chat_id': self.config['chat_id']})
+            if response.status_code != 200:
+                return False
+
+            chat_info = response.json()
+            if not chat_info.get('ok') or 'pinned_message' not in chat_info.get('result', {}):
+                self.index = {}
+                return True
+
+            pinned_message = chat_info['result']['pinned_message']
+            self.index_message_id = pinned_message.get('message_id')
+
+            # Verificar si es nuestro archivo de índice
+            if ('document' in pinned_message and 
+                pinned_message['document']['file_name'] == INDEX_FILENAME):
+                
+                file_id = pinned_message['document']['file_id']
+                content, _ = self.download_file_by_id(file_id)
+                
+                if content:
+                    self.index = json.loads(content)
+                    return True
+            
+            self.index = {}
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error sincronizando índice: {e}")
+            self.index = {}
+            return False
+
+    def save_index(self):
+        """Guarda el índice en Telegram"""
+        if not self.config.get('chat_id'):
+            return False
+        
+        try:
+            # Subir nuevo índice
+            index_bytes = json.dumps(self.index, indent=2).encode('utf-8')
+            files = {'document': (INDEX_FILENAME, index_bytes)}
+            data = {'chat_id': self.config['chat_id'], 'disable_notification': True}
+            
+            response = requests.post(f"{self.base_url}/sendDocument", files=files, data=data, timeout=60)
+            if response.status_code != 200:
+                return False
+
+            result = response.json()
+            if not result['ok']:
+                return False
+
+            new_message_id = result['result']['message_id']
+
+            # Desanclar anterior y fijar nuevo
+            if self.index_message_id:
+                requests.post(f"{self.base_url}/unpinChatMessage", 
+                            data={'chat_id': self.config['chat_id'], 'message_id': self.index_message_id})
+
+            pin_response = requests.post(f"{self.base_url}/pinChatMessage", 
+                                       data={'chat_id': self.config['chat_id'], 'message_id': new_message_id, 'disable_notification': True})
+            
+            if pin_response.json().get('ok'):
+                self.index_message_id = new_message_id
+                return True
+            else:
+                st.error("⚠️ Error: El bot necesita ser administrador con permiso para fijar mensajes")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error guardando índice: {e}")
+            return False
+
     def upload_file(self, file_bytes, filename, remote_name=None):
         """Sube archivo a Telegram"""
-        # ... (sin cambios internos, pero ahora save_index() es más potente)
         if len(file_bytes) > 2 * 1024 * 1024 * 1024:  # 2GB
             return False, "Archivo demasiado grande (máximo 2GB)"
         
@@ -242,6 +209,7 @@ class TelegramCloudStorage:
         remote_name = remote_name or filename
         file_hash = hashlib.md5(file_bytes).hexdigest()
         
+        # Verificar si ya existe
         if remote_name in self.index and self.index[remote_name]['hash'] == file_hash:
             return True, f"Archivo '{remote_name}' ya existe (contenido idéntico)"
         
@@ -252,8 +220,7 @@ class TelegramCloudStorage:
                 'caption': f"☁️ {remote_name}\n🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             }
             
-            response = requests.post(f"{self.base_url}/sendDocument", 
-                                   files=files, data=data, timeout=60)
+            response = requests.post(f"{self.base_url}/sendDocument", files=files, data=data, timeout=60)
             
             if response.status_code == 200:
                 result = response.json()
@@ -267,12 +234,12 @@ class TelegramCloudStorage:
                         'upload_date': datetime.now().isoformat(),
                         'original_filename': filename
                     }
-                    if not self.save_index():
-                        # Si falla el guardado del índice, se revierte la operación para mantener la consistencia
+                    
+                    if self.save_index():
+                        return True, f"Archivo '{remote_name}' subido exitosamente"
+                    else:
                         del self.index[remote_name]
-                        return False, "Error: El archivo se subió, pero no se pudo actualizar el índice remoto."
-
-                    return True, f"Archivo '{remote_name}' subido y sincronizado"
+                        return False, "Error: No se pudo actualizar el índice"
                 else:
                     return False, f"Error API: {result.get('description', 'Error desconocido')}"
             else:
@@ -281,9 +248,8 @@ class TelegramCloudStorage:
         except Exception as e:
             return False, f"Error: {str(e)}"
 
-    # MODIFICADO: Renombrada para mayor claridad y reutilización
     def download_file_by_id(self, file_id):
-        """Descarga un archivo directamente usando su file_id."""
+        """Descarga archivo por file_id"""
         try:
             response = requests.get(f"{self.base_url}/getFile", params={'file_id': file_id})
             if response.status_code == 200:
@@ -305,32 +271,99 @@ class TelegramCloudStorage:
             return None, f"Error: {str(e)}"
 
     def download_file(self, remote_name):
-        """Descarga archivo de Telegram usando el nombre del índice."""
+        """Descarga archivo por nombre"""
         if remote_name not in self.index:
-            return None, f"Archivo '{remote_name}' no encontrado en el índice"
+            return None, f"Archivo '{remote_name}' no encontrado"
         
         file_id = self.index[remote_name]['file_id']
         return self.download_file_by_id(file_id)
 
     def delete_file(self, remote_name):
-        """Elimina archivo del índice y guarda el nuevo índice en Telegram."""
+        """Elimina archivo del índice"""
         if remote_name not in self.index:
             return False, f"Archivo '{remote_name}' no encontrado"
         
         try:
             del self.index[remote_name]
             if self.save_index():
-                return True, f"Archivo '{remote_name}' eliminado del índice"
+                return True, f"Archivo '{remote_name}' eliminado"
             else:
-                # La reversión es más compleja aquí, pero por ahora notificamos el fallo.
-                return False, "Error: No se pudo actualizar el índice remoto tras la eliminación."
+                return False, "Error: No se pudo actualizar el índice"
         except Exception as e:
             return False, f"Error: {str(e)}"
 
-# ... (El resto del código, `format_size`, `zip_folder` y `main`, no necesita cambios)
+    def generate_share_link(self, remote_name):
+        """Genera enlace compartible para descarga"""
+        if remote_name not in self.index:
+            return None, "Archivo no encontrado"
+        
+        try:
+            # Crear datos del enlace
+            share_data = {
+                'bot_token': self.bot_token,
+                'file_id': self.index[remote_name]['file_id'],
+                'filename': remote_name,
+                'size': self.index[remote_name]['size'],
+                'upload_date': self.index[remote_name]['upload_date']
+            }
+            
+            # Codificar en base64
+            json_data = json.dumps(share_data)
+            encoded_data = base64.b64encode(json_data.encode()).decode()
+            
+            # Crear URL
+            base_url = st.secrets.get("APP_URL", "http://localhost:8501")  # Configurable
+            share_url = f"{base_url}?share={urllib.parse.quote(encoded_data)}"
+            
+            return share_url, "Enlace generado exitosamente"
+            
+        except Exception as e:
+            return None, f"Error generando enlace: {str(e)}"
+
+def handle_shared_link():
+    """Maneja la descarga desde enlace compartido"""
+    if 'share' in st.query_params:
+        try:
+            encoded_data = st.query_params['share']
+            decoded_data = base64.b64decode(urllib.parse.unquote(encoded_data)).decode()
+            share_data = json.loads(decoded_data)
+            
+            st.title("📥 Descarga Compartida")
+            st.markdown(f"**📄 Archivo:** {share_data['filename']}")
+            st.markdown(f"**📊 Tamaño:** {format_size(share_data['size'])}")
+            
+            upload_date = datetime.fromisoformat(share_data['upload_date'])
+            st.markdown(f"**📅 Subido:** {upload_date.strftime('%d/%m/%Y %H:%M')}")
+            
+            if st.button("📥 Descargar Archivo"):
+                with st.spinner("Descargando..."):
+                    # Crear cliente temporal
+                    temp_client = TelegramCloudStorage(share_data['bot_token'])
+                    content, message = temp_client.download_file_by_id(share_data['file_id'])
+                    
+                    if content:
+                        st.download_button(
+                            label="💾 Guardar Archivo",
+                            data=content,
+                            file_name=share_data['filename'],
+                            mime='application/octet-stream'
+                        )
+                        st.success("✅ Archivo listo para descargar")
+                    else:
+                        st.error(f"Error: {message}")
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"Error procesando enlace: {str(e)}")
+            return True
+    
+    return False
+
 def format_size(bytes_size):
     """Formatea tamaño de archivo"""
-    if not isinstance(bytes_size, (int, float)): return "0 B"
+    if not isinstance(bytes_size, (int, float)): 
+        return "0 B"
     for unit in ['B', 'KB', 'MB', 'GB']:
         if bytes_size < 1024:
             return f"{bytes_size:.1f} {unit}"
@@ -350,35 +383,31 @@ def zip_folder(folder_path):
     return zip_buffer
 
 def main():
-    st.title("☁️ Telegram Cloud Storage")
-    st.markdown("*Sistema de almacenamiento en la nube*")
+    # Verificar si es un enlace compartido
+    if handle_shared_link():
+        return
     
-    with st.expander("📌 Cómo empezar (Haz clic para ver)"):
+    st.title("☁️ Telegram Cloud Storage")
+    st.markdown("*Sistema de almacenamiento en la nube con enlaces compartibles*")
+    
+    # Instrucciones simplificadas
+    with st.expander("📋 Instrucciones"):
         st.markdown("""
-        1. **Obtén tu token**:
-           - Busca **@BotFather** en Telegram, envia /newbot, sigue las instrucciones.
-           - Copia el token que te proporcionará.
-           - **¡MUY IMPORTANTE!** Promociona tu bot a **Administrador** y asegúrate de que tiene el permiso para **Fijar Mensajes**.
-        
-        3. **Configuración en la App**:
-           - Ingresa el token en el panel lateral.
-           - Envía un mensaje cualquiera al bot. "Hola"
-           - La aplicación detectará automáticamente tu Chat ID y se configurará.
-        
-        4. **¡Listo!** 
+        1. **Crear Bot**: Busca @BotFather en Telegram → /newbot → Copia el token
+        2. **Configurar Bot**: Hazlo administrador con permiso para "Fijar Mensajes"
+        3. **Usar App**: Pega el token → Envía "Hola" al bot → Selecciona el chat
+        4. **¡Listo!** Ya puedes subir archivos y generar enlaces compartibles
         """)
     
+    # Inicializar cliente
     if 'client' not in st.session_state:
         st.session_state.client = None
     
+    # Configuración en sidebar
     with st.sidebar:
         st.header("⚙️ Configuración")
         
-        bot_token = st.text_input(
-            "🔑 Token del Bot:",
-            type="password",
-            help="Obtén tu token de @BotFather en Telegram"
-        )
+        bot_token = st.text_input("🔑 Token del Bot:", type="password")
         
         if bot_token:
             if not st.session_state.client or st.session_state.client.bot_token != bot_token:
@@ -391,209 +420,206 @@ def main():
                 st.success(f"✅ Bot: {bot_info.get('first_name', 'Bot')}")
                 
                 if not client.config.get('chat_id'):
-                    with st.spinner("Buscando Chat ID... Envía un mensaje a tu bot/grupo/canal."):
+                    with st.spinner("Buscando chats..."):
                         chats = client.get_chat_ids()
                         if chats:
                             chat_options = {name: id for id, name in chats}
-                            selected_chat_name = st.selectbox("Selecciona el Chat/Canal de destino:", options=chat_options.keys())
-                            if st.button("Guardar Configuración"):
-                                chat_id = chat_options[selected_chat_name]
-                                if client.save_config(chat_id):
-                                    st.success("✅ Configuración guardada. Recargando...")
+                            selected_chat = st.selectbox("Selecciona Chat:", chat_options.keys())
+                            if st.button("💾 Guardar"):
+                                if client.save_config(chat_options[selected_chat]):
+                                    st.success("✅ Configurado")
                                     st.rerun()
-                                else:
-                                    st.error("Error al guardar configuración")
                         else:
-                            st.error("❌ No se encontraron chats. Envía un mensaje a tu bot/grupo/canal primero.")
+                            st.error("❌ Envía 'Hola' a tu bot primero")
                 else:
-                    st.success("✅ Configuración lista y sincronizada.")
-                    if st.button("🔄 Reiniciar configuración"):
-                        if client.config_file.exists():
-                           os.remove(client.config_file)
+                    st.success("✅ Configurado")
+                    if st.button("🔄 Reconfigurar"):
+                        client.config_file.unlink(missing_ok=True)
                         st.session_state.client = None
                         st.rerun()
             else:
                 st.error("❌ Token inválido")
         else:
-            st.info("👆 Ingresa tu token para comenzar")
+            st.info("👆 Ingresa tu token")
     
+    # Verificar configuración
     if not st.session_state.get('client') or not st.session_state.client.config.get('chat_id'):
-        st.warning("⚠️ Completa la configuración en el panel lateral para continuar.")
+        st.warning("⚠️ Completa la configuración para continuar")
         return
     
     client = st.session_state.client
     
-    tab1, tab2, tab3 = st.tabs(["📤 Subir", "📁 Archivos", "📊 Estadísticas"])
+    # Tabs principales
+    tab1, tab2, tab3 = st.tabs(["📤 Subir", "📁 Archivos", "📊 Stats"])
     
     with tab1:
-        # ... (código de la tab1 sin cambios) ...
         st.header("📤 Subir Archivos")
-        uploaded_files = st.file_uploader(
-            "Selecciona archivos:",
-            accept_multiple_files=True,
-            help="Máximo 2GB por archivo"
-        )
+        
+        # Subir archivos individuales
+        uploaded_files = st.file_uploader("Selecciona archivos:", accept_multiple_files=True)
+        
         if uploaded_files:
-            for idx, uploaded_file in enumerate(uploaded_files):
-                unique_id = f"file_{idx}_{uploaded_file.name}"
+            for uploaded_file in uploaded_files:
                 col1, col2, col3 = st.columns([2, 2, 1])
+                
                 with col1:
-                    st.write(f"📄 **{uploaded_file.name}** ({format_size(uploaded_file.size)})")
-                    if client.file_exists(uploaded_file.name):
-                        st.warning(f"'{uploaded_file.name}' ya existe. Subir lo sobrescribirá.")
+                    st.write(f"📄 {uploaded_file.name} ({format_size(uploaded_file.size)})")
+                
                 with col2:
-                    custom_name = st.text_input("Nombre remoto:", value=uploaded_file.name, key=f"name_{unique_id}")
-                    if custom_name != uploaded_file.name and client.file_exists(custom_name):
-                        st.warning(f"'{custom_name}' ya existe. Subir lo sobrescribirá.")
+                    custom_name = st.text_input("Nombre:", value=uploaded_file.name, 
+                                              key=f"name_{uploaded_file.name}")
+                
                 with col3:
-                    if st.button("📤 Subir", key=f"upload_{unique_id}"):
-                        with st.spinner(f"Subiendo {custom_name}..."):
+                    if st.button("📤", key=f"upload_{uploaded_file.name}"):
+                        with st.spinner("Subiendo..."):
                             file_bytes = uploaded_file.read()
                             success, message = client.upload_file(file_bytes, uploaded_file.name, custom_name)
+                        
                         if success:
                             st.success(message)
+                            st.rerun()
                         else:
                             st.error(message)
-
+        
+        # Subir carpeta como ZIP
         st.markdown("---")
-        st.subheader("📂 Subir Carpeta (como ZIP)")
-        folder_path_input = st.text_input("Ruta local de la carpeta:", placeholder="Ej: C:/Users/TuUsuario/Documents/Proyecto", key="folder_path")
-        if folder_path_input and os.path.isdir(folder_path_input):
-            folder_name = os.path.basename(folder_path_input)
+        st.subheader("📂 Subir Carpeta")
+        
+        folder_path = st.text_input("Ruta de carpeta:", placeholder="C:/ruta/a/carpeta")
+        
+        if folder_path and os.path.isdir(folder_path):
+            folder_name = os.path.basename(folder_path)
             zip_name = f"{folder_name}.zip"
+            
             col1, col2 = st.columns([3, 1])
             with col1:
-                custom_zip_name = st.text_input("Nombre del archivo ZIP:", value=zip_name, key="zip_name")
-                if client.file_exists(custom_zip_name):
-                    st.warning(f"'{custom_zip_name}' ya existe. Subir lo sobrescribirá.")
+                custom_zip_name = st.text_input("Nombre ZIP:", value=zip_name)
             with col2:
-                st.write(" ") 
-                if st.button("📤 Subir Carpeta", key="upload_folder"):
-                    with st.spinner(f"Comprimiendo y subiendo {custom_zip_name}..."):
+                st.write("")  # Espaciador
+                if st.button("📤 Subir"):
+                    with st.spinner("Comprimiendo..."):
                         try:
-                            zip_buffer = zip_folder(folder_path_input)
+                            zip_buffer = zip_folder(folder_path)
                             zip_bytes = zip_buffer.getvalue()
                             success, message = client.upload_file(zip_bytes, zip_name, custom_zip_name)
+                            
                             if success:
                                 st.success(message)
+                                st.rerun()
                             else:
                                 st.error(message)
                         except Exception as e:
-                            st.error(f"Error al comprimir: {str(e)}")
-        elif folder_path_input:
-            st.error("La ruta ingresada no es un directorio válido.")
+                            st.error(f"Error: {str(e)}")
 
     with tab2:
-        # MODIFICADO: Añadimos una columna para el botón de sincronización
-        col_header, col_button = st.columns([3, 1])
-        with col_header:
+        col1, col2 = st.columns([3, 1])
+        with col1:
             st.header("📁 Mis Archivos")
-        
-        # NUEVO: Botón de Sincronización Manual
-        with col_button:
-            st.write("") # Espaciador para alinear verticalmente
-            if st.button("🔄 Sincronizar Ahora"):
-                client.load_index_from_telegram()
+        with col2:
+            if st.button("🔄 Sincronizar"):
+                client.sync_index()
                 st.rerun()
-
+        
         if not client.index:
-            st.info("📭 No tienes archivos almacenados")
+            st.info("📭 No hay archivos")
         else:
-            col1, col2 = st.columns([2, 1])
+            # Búsqueda y ordenamiento
+            col1, col2 = st.columns(2)
             with col1:
-                search = st.text_input("🔍 Buscar:", key="search")
+                search = st.text_input("🔍 Buscar:")
             with col2:
-                sort_by = st.selectbox("📊 Ordenar:", ["Fecha ↓", "Fecha ↑", "Tamaño ↓", "Tamaño ↑", "Nombre A-Z", "Nombre Z-A"])
+                sort_by = st.selectbox("📊 Ordenar:", 
+                                     ["Fecha ↓", "Fecha ↑", "Tamaño ↓", "Tamaño ↑", "Nombre A-Z"])
             
-            filtered = {name: info for name, info in client.index.items() if not search or search.lower() in name.lower()}
+            # Filtrar archivos
+            filtered = {name: info for name, info in client.index.items() 
+                       if not search or search.lower() in name.lower()}
             
-            sort_key_map = {
-                "Fecha ↓": (lambda x: x[1]['upload_date'], True),
-                "Fecha ↑": (lambda x: x[1]['upload_date'], False),
-                "Tamaño ↓": (lambda x: x[1]['size'], True),
-                "Tamaño ↑": (lambda x: x[1]['size'], False),
-                "Nombre A-Z": (lambda x: x[0], False),
-                "Nombre Z-A": (lambda x: x[0], True)
+            # Ordenar archivos
+            sort_funcs = {
+                "Fecha ↓": lambda x: x[1]['upload_date'],
+                "Fecha ↑": lambda x: x[1]['upload_date'],
+                "Tamaño ↓": lambda x: x[1]['size'],
+                "Tamaño ↑": lambda x: x[1]['size'],
+                "Nombre A-Z": lambda x: x[0]
             }
-            sort_func, reverse = sort_key_map[sort_by]
-            sorted_files = sorted(filtered.items(), key=sort_func, reverse=reverse)
-
-            st.info(f"📋 Mostrando {len(sorted_files)} de {len(client.index)} archivos totales.")
             
+            reverse = "↓" in sort_by
+            sorted_files = sorted(filtered.items(), key=sort_funcs[sort_by], reverse=reverse)
+            
+            st.info(f"📋 {len(sorted_files)} de {len(client.index)} archivos")
+            
+            # Mostrar archivos
             for name, info in sorted_files:
-                file_unique_id = hashlib.md5(name.encode()).hexdigest()[:8]
                 with st.expander(f"📄 {name} ({format_size(info['size'])})"):
-                    # (El resto del código para mostrar los archivos no cambia)
-                    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                    col1, col2, col3, col4 = st.columns(4)
+                    
                     with col1:
                         upload_date = datetime.fromisoformat(info['upload_date'])
-                        st.write(f"📅 {upload_date.strftime('%d/%m/%Y %H:%M')}")
-                        st.caption(f"Nombre original: {info.get('original_filename', name)}")
-                        st.caption(f"Hash: {info['hash'][:16]}...")
+                        st.write(f"📅 {upload_date.strftime('%d/%m/%Y')}")
+                    
                     with col2:
-                        st.download_button(
-                            label="📥 Descargar",
-                            data=b'',
-                            file_name=name,
-                            key=f"dl_btn_{file_unique_id}",
-                            disabled=True
-                        )
+                        if st.button("📥 Descargar", key=f"dl_{name}"):
+                            with st.spinner("Descargando..."):
+                                content, message = client.download_file(name)
+                                if content:
+                                    st.download_button(
+                                        "💾 Guardar",
+                                        data=content,
+                                        file_name=name,
+                                        key=f"save_{name}"
+                                    )
+                                else:
+                                    st.error(message)
+                    
                     with col3:
-                        if st.button("🗑️ Eliminar", key=f"delete_{file_unique_id}"):
+                        if st.button("🔗 Compartir", key=f"share_{name}"):
+                            share_url, message = client.generate_share_link(name)
+                            if share_url:
+                                st.code(share_url, language=None)
+                                st.success("✅ Enlace generado")
+                            else:
+                                st.error(message)
+                    
+                    with col4:
+                        if st.button("🗑️ Eliminar", key=f"del_{name}"):
                             success, message = client.delete_file(name)
                             if success:
                                 st.success(message)
                                 st.rerun()
                             else:
                                 st.error(message)
-                    
-                    with col2:
-                        if st.button("Preparar Descarga", key=f"prep_dl_{file_unique_id}"):
-                             with st.spinner("Descargando..."):
-                                content, message = client.download_file(name)
-                                if content:
-                                    st.session_state[f'dl_data_{file_unique_id}'] = (content, name)
-                                else:
-                                    st.error(message)
-
-                    if f'dl_data_{file_unique_id}' in st.session_state:
-                         content, file_name = st.session_state[f'dl_data_{file_unique_id}']
-                         st.download_button(
-                            label="✅ ¡Guardar Ahora!",
-                            data=content,
-                            file_name=file_name,
-                            mime='application/octet-stream',
-                            key=f"save_{file_unique_id}"
-                         )
-                         del st.session_state[f'dl_data_{file_unique_id}']
-
 
     with tab3:
-        # ... (código de la tab3 sin cambios) ...
         st.header("📊 Estadísticas")
+        
         if not client.index:
-            st.info("📭 No hay datos disponibles")
+            st.info("📭 No hay datos")
         else:
             total_files = len(client.index)
-            total_size = sum(info.get('size', 0) for info in client.index.values())
+            total_size = sum(info['size'] for info in client.index.values())
             avg_size = total_size / total_files if total_files > 0 else 0
             
             col1, col2, col3 = st.columns(3)
-            with col1: st.metric("📁 Archivos Totales", total_files)
-            with col2: st.metric("💾 Espacio Utilizado", format_size(total_size))
-            with col3: st.metric("📊 Tamaño Promedio", format_size(avg_size))
+            with col1: 
+                st.metric("📁 Archivos", total_files)
+            with col2: 
+                st.metric("💾 Espacio", format_size(total_size))
+            with col3: 
+                st.metric("📊 Promedio", format_size(avg_size))
             
-            st.subheader("🔝 5 Archivos más grandes")
-            largest = sorted(client.index.items(), key=lambda x: x[1].get('size', 0), reverse=True)[:5]
+            # Top 5 más grandes
+            st.subheader("🔝 Archivos más grandes")
+            largest = sorted(client.index.items(), key=lambda x: x[1]['size'], reverse=True)[:5]
             for i, (name, info) in enumerate(largest, 1):
-                st.write(f"{i}. **{name}** - {format_size(info.get('size', 0))}")
+                st.write(f"{i}. **{name}** - {format_size(info['size'])}")
             
-            st.subheader("⏰ 5 Archivos más recientes")
+            # 5 más recientes
+            st.subheader("⏰ Archivos recientes")
             recent = sorted(client.index.items(), key=lambda x: x[1]['upload_date'], reverse=True)[:5]
             for name, info in recent:
                 date = datetime.fromisoformat(info['upload_date'])
-                st.write(f"📄 **{name}** - subido el {date.strftime('%d/%m/%Y a las %H:%M')}")
-
+                st.write(f"📄 **{name}** - {date.strftime('%d/%m/%Y %H:%M')}")
 
 if __name__ == "__main__":
     main()
